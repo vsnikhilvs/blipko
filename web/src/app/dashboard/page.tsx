@@ -71,7 +71,7 @@ async function OverviewSection({
         needsReviewPromise,
         categoriesPromise,
         getBoxes(),
-        getWrappedStats(),
+        hasOnboarded ? getWrappedStats() : Promise.resolve(null),
     ]);
 
     const currencyFormat = {
@@ -90,7 +90,7 @@ async function OverviewSection({
         <>
             {!hasOnboarded && <Onboarding taxonomy={taxonomy} />}
             {hasOnboarded && <ConnectTelegramBanner />}
-            {hasOnboarded && <WrappedLauncher stats={wrapped} />}
+            {wrapped && <WrappedLauncher stats={wrapped} />}
 
             <NeedsReviewInbox
                 expenses={needsReview} 

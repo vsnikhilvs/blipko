@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 import { Bucket } from "@prisma/client";
 import { BUCKETS, BUCKET_META, currentMonthRange } from "@/lib/budget";
+import { DEFAULT_TZ, isMonthEndWindow, zonedParts } from "@/lib/time";
 
 export type WrappedBucketSlice = {
   bucket: Bucket;
@@ -29,22 +30,33 @@ export type WrappedStats = {
 // The current calendar month, "wrapped" — a shareable recap of what the user
 // spent, saved and splurged on. Calendar-month scoped (not the payday cycle) so
 // the numbers match the month name on the card.
-export async function getWrappedStats(): Promise<WrappedStats> {
+//
+// Returns null when there is nothing to announce: outside the last few days of
+// the month, or when the month has no transactions. The user lookup runs first
+// precisely so the window check can bail before the six aggregate queries.
+export async function getWrappedStats(): Promise<WrappedStats | null> {
   const session = await auth();
   if (!session?.user?.id) {
     redirect("/");
   }
   const userId = session.user.id;
   const now = new Date();
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { currency: true, timezone: true },
+  });
+  const tz = user?.timezone ?? DEFAULT_TZ;
+  if (!isMonthEndWindow(now, tz)) return null;
+
+  // Name the card's month with the same clock that decided to show it.
+  const { year, month } = zonedParts(now, tz);
+
   const { start, end } = currentMonthRange(now);
   const where = { userId, isDeleted: false, date: { gte: start, lt: end } };
 
-  const [user, bucketGroups, incomeAgg, biggest, txnCount, categoryGroups] =
+  const [bucketGroups, incomeAgg, biggest, txnCount, categoryGroups] =
     await Promise.all([
-      prisma.user.findUnique({
-        where: { id: userId },
-        select: { currency: true },
-      }),
       prisma.expense.groupBy({
         by: ["bucket"],
         _sum: { amount: true },
@@ -71,6 +83,8 @@ export async function getWrappedStats(): Promise<WrappedStats> {
         take: 1,
       }),
     ]);
+
+  if (txnCount === 0) return null;
 
   const currency = user?.currency ?? "INR";
 
@@ -124,8 +138,11 @@ export async function getWrappedStats(): Promise<WrappedStats> {
     : null;
 
   return {
-    monthLabel: now.toLocaleDateString("en-US", { month: "long" }),
-    year: now.getFullYear(),
+    monthLabel: new Date(Date.UTC(year, month - 1, 1)).toLocaleDateString(
+      "en-US",
+      { month: "long", timeZone: "UTC" },
+    ),
+    year,
     currency,
     totalSpent,
     totalIncome,

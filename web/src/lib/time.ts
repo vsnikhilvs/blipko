@@ -108,6 +108,18 @@ export function zonedHour(date: Date, tz: string): number {
   return rawParts(date, tz).hour;
 }
 
+// True when `now`, read in the user's timezone, falls in the last `days`
+// calendar days of the month. Gates the Wrapped launcher, which should only
+// announce itself once the month is nearly over.
+export function isMonthEndWindow(now: Date, tz: string, days = 3): boolean {
+  const { year, month, day } = zonedParts(now, tz);
+  // Day 0 of the next month is the last day of this one. Plain UTC arithmetic:
+  // the month's length is a calendar fact, and `zonedParts` has already decided
+  // which month we are in.
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return day > daysInMonth - days;
+}
+
 // Offset (ms) that `tz` is ahead of UTC at the given instant.
 function tzOffsetMs(instant: Date, tz: string): number {
   const p = rawParts(instant, tz);

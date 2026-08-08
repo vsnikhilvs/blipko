@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   cycleIndexer,
   cycleLabel,
+  isMonthEndWindow,
   zonedBudgetPeriod,
   zonedCycleWindows,
   zonedHour,
@@ -234,6 +235,53 @@ describe("weekday and hour extraction", () => {
     expect(zonedWeekday(t, IST)).toBe("Tue");
     expect(zonedHour(t, "UTC")).toBe(19);
     expect(zonedHour(t, IST)).toBe(1);
+  });
+});
+
+describe("isMonthEndWindow", () => {
+  // 11:30 IST on the given day — safely inside the day in both IST and UTC.
+  const at = (ymd: string) => new Date(`${ymd}T06:00:00.000Z`);
+
+  it("opens on the last three days of a 31-day month", () => {
+    expect(isMonthEndWindow(at("2026-08-28"), IST)).toBe(false);
+    expect(isMonthEndWindow(at("2026-08-29"), IST)).toBe(true);
+    expect(isMonthEndWindow(at("2026-08-30"), IST)).toBe(true);
+    expect(isMonthEndWindow(at("2026-08-31"), IST)).toBe(true);
+  });
+
+  it("shifts with the month's real length", () => {
+    // Feb 2026 has 28 days, Feb 2028 has 29. A fixed "day >= 29" would break
+    // February entirely.
+    expect(isMonthEndWindow(at("2026-02-25"), IST)).toBe(false);
+    expect(isMonthEndWindow(at("2026-02-26"), IST)).toBe(true);
+    expect(isMonthEndWindow(at("2026-02-28"), IST)).toBe(true);
+
+    expect(isMonthEndWindow(at("2028-02-26"), IST)).toBe(false);
+    expect(isMonthEndWindow(at("2028-02-27"), IST)).toBe(true);
+    expect(isMonthEndWindow(at("2028-02-29"), IST)).toBe(true);
+  });
+
+  it("closes again on the first of the next month", () => {
+    expect(isMonthEndWindow(at("2026-09-01"), IST)).toBe(false);
+  });
+
+  it("handles December, where the next month is in the next year", () => {
+    expect(isMonthEndWindow(at("2026-12-28"), IST)).toBe(false);
+    expect(isMonthEndWindow(at("2026-12-29"), IST)).toBe(true);
+    expect(isMonthEndWindow(at("2026-12-31"), IST)).toBe(true);
+  });
+
+  it("uses the user's clock, not the server's", () => {
+    // 19:00 UTC on Aug 31 is already 00:30 on Sep 1 in IST. The IST user's month
+    // is over, so their window has closed while a UTC user's is still open.
+    const t = new Date("2026-08-31T19:00:00.000Z");
+    expect(isMonthEndWindow(t, IST)).toBe(false);
+    expect(isMonthEndWindow(t, "UTC")).toBe(true);
+  });
+
+  it("honours a custom window width", () => {
+    expect(isMonthEndWindow(at("2026-08-30"), IST, 1)).toBe(false);
+    expect(isMonthEndWindow(at("2026-08-31"), IST, 1)).toBe(true);
   });
 });
 
