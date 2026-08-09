@@ -259,6 +259,61 @@ describe("FinancialDataTools", () => {
       ]);
     });
 
+    it("collapses the system template and the user's own copy into one entry", async () => {
+      // findAllForUser returns both rows. Left alone, most names appear twice —
+      // duplicated in the tool schema's enum and in what the model reads back.
+      categoryRepository.findAllForUser.mockResolvedValue([
+        {
+          id: "sys",
+          name: "Fuel",
+          bucket: "NEEDS",
+          isGroup: false,
+          monthlyBudget: null,
+          userId: null,
+        },
+        {
+          id: "own",
+          name: "Fuel",
+          bucket: "NEEDS",
+          isGroup: false,
+          monthlyBudget: 2000,
+          userId: "u1",
+        },
+      ]);
+      const res = await tools.getCategories("u1");
+
+      expect(res.categories).toHaveLength(1);
+      // The user's own row wins, so their budget shows rather than the blank template.
+      expect(res.categories[0]).toEqual({
+        name: "Fuel",
+        bucket: "NEEDS",
+        monthlyBudget: "₹2,000",
+      });
+    });
+
+    it("keeps the user's row regardless of which order they come back in", async () => {
+      categoryRepository.findAllForUser.mockResolvedValue([
+        {
+          id: "own",
+          name: "Fuel",
+          bucket: "NEEDS",
+          isGroup: false,
+          monthlyBudget: 2000,
+          userId: "u1",
+        },
+        {
+          id: "sys",
+          name: "Fuel",
+          bucket: "NEEDS",
+          isGroup: false,
+          monthlyBudget: null,
+          userId: null,
+        },
+      ]);
+      const res = await tools.getCategories("u1");
+      expect(res.categories[0]!.monthlyBudget).toBe("₹2,000");
+    });
+
     it("reports box progress toward target", async () => {
       boxRepository.listWithBalances.mockResolvedValue([
         { name: "New York trip", balance: 5000, targetAmount: 20000 },

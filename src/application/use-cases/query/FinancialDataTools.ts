@@ -216,8 +216,21 @@ export class FinancialDataTools implements IFinancialDataTools {
     // so offering them to the model just invites uncategorized spends.
     const leaves = all.filter((c) => !c.isGroup);
 
+    // One entry per NAME, preferring the user's own row over the shared system
+    // template. findAllForUser returns both, so without this most names appear
+    // twice — duplicated in the tool schema's enum and in the list the model
+    // reads back to the user.
+    const byName = new Map<string, (typeof leaves)[number]>();
+    for (const c of leaves) {
+      const existing = byName.get(c.name);
+      if (!existing || (existing.userId === null && c.userId === userId)) {
+        byName.set(c.name, c);
+      }
+    }
+    const unique = [...byName.values()];
+
     const result: Categories = {
-      categories: leaves.map((c) => ({
+      categories: unique.map((c) => ({
         name: c.name,
         bucket: c.bucket,
         monthlyBudget:
@@ -226,7 +239,7 @@ export class FinancialDataTools implements IFinancialDataTools {
             : formatMoney(Number(c.monthlyBudget)),
       })),
     };
-    if (leaves.length === 0) result.note = "The user has no categories yet.";
+    if (unique.length === 0) result.note = "The user has no categories yet.";
     return result;
   }
 
