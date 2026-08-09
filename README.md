@@ -2,11 +2,17 @@
 
 ![Blipko Banner](public/Banner.png)
 
+
 ### Know where your salary goes. Just chat.
 
 **Blipko is a conversational personal-budget tracker on Telegram.** Log what you spend in plain language —
 by text or voice, in English, Hindi, Hinglish, Malayalam, or Manglish — and Blipko sorts it into a 50/30/20
 budget, tells you what's left, and answers questions about your money. No app to install. No forms. Just a chat.
+
+
+in telegram now: [![Telegram](https://img.shields.io/badge/Telegram-Bot-229ED9?style=flat-square&logo=telegram&logoColor=white)](https://t.me/Blipko_bot)
+
+![Telegram Profile](web/public/blipko.telegram.profile.png)
 
 [![Live](https://img.shields.io/badge/live-blipko.lol-a3b18a?style=flat-square)](https://blipko.lol)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
@@ -146,8 +152,11 @@ income tabs, CSV export), category & per-category-limit editing, recurring manag
 
 <div align="center">
 
-![Dashboard](public/screenshot01.png)
-![Analytics](public/screenshot02.png)
+![Category](web/public/blipko.category.landing.main.png)
+![Analytics](web/public/blipko.dashboard.category.overview.landing.main.webp)
+![Overview](web/public/blipko.dashboard.overview.landing.main.webp)
+![Telegram](web/public/blipko.telegram.landing.main.png)
+
 
 </div>
 
