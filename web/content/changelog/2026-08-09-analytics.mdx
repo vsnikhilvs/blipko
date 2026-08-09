@@ -1,0 +1,82 @@
+export const meta = {
+  slug: "analytics-rebuilt",
+  title: "Analytics, rebuilt",
+  date: "2026-08-09",
+  summary:
+    "Every chart on the dashboard redrawn around one question — not what you spent, but whether that's normal for you.",
+  tags: ["Feature", "Improvement"],
+};
+
+"You spent ₹17,041 this cycle" is a fact. "Saturday is your heaviest day — a
+third of everything" is something you can actually do something about.
+Analytics has been rebuilt around the second kind.
+
+### Buckets, at a glance
+
+<Img
+  src="/blipko.analytics.buckets.gauges.webp"
+  alt="Three gauges showing Needs, Wants and Savings spending against each bucket's budget for the current cycle"
+  width={3840}
+  height={2880}
+  caption="How full each bucket is, without reading a single number."
+/>
+
+Needs, Wants and Savings as gauges. You can see how much of the cycle you've
+used before you've read anything — the number underneath is confirmation, not
+the point.
+
+### Where the money went
+
+<Img
+  src="/blipko.analytics.where.money.went.webp"
+  alt="A donut chart of this cycle's spending by category, with Investments the largest slice at 49%"
+  width={3840}
+  height={2880}
+  caption="The biggest slice is named for you, so you don't have to hunt for it."
+/>
+
+Your cycle broken down by category, largest first — and the headline called out
+in a sentence, because the whole reason you opened the chart was to find out
+which one it was.
+
+### Income vs spending
+
+<Img
+  src="/blipko.analytics.income.vs.spending.webp"
+  alt="Bars of income and spending per budget cycle with a net line drawn over the top"
+  width={3840}
+  height={2880}
+  caption="Money in, money out, and the net drawn over the top."
+/>
+
+Money in against money out, cycle by cycle. The line over the top is the net —
+the shape of it tells you whether the gap is widening or closing.
+
+### Spending by day of the week
+
+<Img
+  src="/blipko.analytics.spending.by.weekday.webp"
+  alt="Bars showing spending for each day of the week across three budget cycles, with Saturday the heaviest"
+  width={3840}
+  height={2880}
+  caption="Your pattern across cycles, in your own local time."
+/>
+
+Habits show up here that a monthly total hides completely. Spread across
+several cycles, one heavy day is a coincidence; the same heavy day every week
+is a habit.
+
+### Also
+
+- Charts respect your **reduced-motion** setting — no animation if your system
+  asks for none.
+- **Cycle labels use your timezone**, so a cycle that starts on the 1st no
+  longer reads as the 31st.
+- Analytics is now a **tabbed surface**, and the charts are lighter and quicker
+  to draw.
+
+### Fixed
+
+- **Wrapped** now appears only in the last few days of the month, worked out in
+  your own timezone — and stays away entirely when the month has nothing worth
+  looking back on.

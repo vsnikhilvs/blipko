@@ -1,0 +1,78 @@
+{/*
+  NOT PUBLISHED YET — this file is deliberately absent from the registry in
+  src/lib/changelog.ts, so it renders nowhere.
+
+  The assistant is merged but inert in production until ASSISTANT_ENABLED and
+  ANTHROPIC_API_KEY are set on Railway. Publishing this first would send people
+  to try something that answers them the old way.
+
+  To publish, once the flag is on:
+    1. Set `date` below to the real ship date — it drives ordering, and this one
+       is the day the entry was drafted.
+    2. In src/lib/changelog.ts, add:
+         import * as assistant from "../../content/changelog/<this file>";
+       and add `assistant` to the `modules` array.
+    3. Rename this file's date prefix to match, so the folder still sorts.
+*/}
+
+export const meta = {
+  slug: "ask-blipko",
+  title: "Ask Blipko anything",
+  date: "2026-08-09",
+  summary:
+    "Ask about your money in plain language and get an answer worked out from your own records — plus changes you confirm before they happen.",
+  tags: ["Feature"],
+};
+
+You could always log a spend by texting. Now you can ask about one.
+
+```
+You:    am I spending more than last month?
+Blipko: Yes — spending is up this cycle: ₹2,000 so far vs ₹400 for all of
+        July (+₹1,600).
+
+        ⚠️ This cycle is only day 9 of 31, so that's a partial month against
+        a full one.
+
+You:    can I afford a 5000 phone?
+Blipko: Yes ✅
+        Wants: ₹13,800 left → ₹8,800 after
+        ₹383/day for the remaining 23 days
+
+You:    set aside 2000 for the Goa trip
+Blipko: Ready to move ₹2,000 into your Goa trip box.
+
+        ➡️ Add ₹2,000 to Goa trip
+        [ ✅ Confirm ]  [ ✖️ Cancel ]
+```
+
+### The numbers aren't guessed
+
+This is the part that matters. Every figure comes out of your own records, and
+every comparison is worked out before the AI is involved — affordability is a
+yes/tight/no decision made in code, cycle comparisons arrive with the difference
+already calculated. The AI chooses what to look up and how to say it. It doesn't
+do the arithmetic.
+
+Which also means it will tell you when it doesn't know. Ask about a category
+with nothing logged and you get "nothing recorded" — never a confident ₹0.
+
+### Changes are proposed, not made
+
+It can edit a spend, delete one, set up a recurring rule, or move money into a
+box — but it only ever proposes. You get a one-line summary built from the
+actual record it would touch, and Confirm and Cancel buttons. Nothing is
+written until you tap.
+
+### It can explain itself
+
+Ask what it can do, how something works, or where your dashboard is, and it
+answers from a maintained list rather than improvising — so it won't invent a
+feature that doesn't exist.
+
+### Also
+
+- **Dates work in your timezone.** "Yesterday" means your yesterday, including
+  late at night, when it used to mean the server's.
+- Questions about a specific category no longer come back empty when you've
+  customised that category.
