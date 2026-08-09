@@ -17,11 +17,8 @@ import * as categories from "../../content/changelog/2026-06-29-categories.mdx";
 import * as editAnywhere from "../../content/changelog/2026-07-07-edit-anywhere.mdx";
 import * as boxesWrapped from "../../content/changelog/2026-07-30-boxes-wrapped.mdx";
 import * as analytics from "../../content/changelog/2026-08-09-analytics.mdx";
+import * as assistant from "../../content/changelog/2026-08-09-assistant.mdx";
 
-// 2026-08-09-assistant.mdx is written but deliberately NOT imported here — it
-// announces a feature that stays inert until ASSISTANT_ENABLED and
-// ANTHROPIC_API_KEY are set. Publish it by adding the import and the array
-// entry, after correcting its `date`.
 const modules = [
   telegram,
   budgetTracker,
@@ -30,6 +27,7 @@ const modules = [
   editAnywhere,
   boxesWrapped,
   analytics,
+  assistant,
 ];
 
 // ── The `meta` contract ────────────────────────────────────────────────────

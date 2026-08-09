@@ -1,20 +1,3 @@
-{/*
-  NOT PUBLISHED YET — this file is deliberately absent from the registry in
-  src/lib/changelog.ts, so it renders nowhere.
-
-  The assistant is merged but inert in production until ASSISTANT_ENABLED and
-  ANTHROPIC_API_KEY are set on Railway. Publishing this first would send people
-  to try something that answers them the old way.
-
-  To publish, once the flag is on:
-    1. Set `date` below to the real ship date — it drives ordering, and this one
-       is the day the entry was drafted.
-    2. In src/lib/changelog.ts, add:
-         import * as assistant from "../../content/changelog/<this file>";
-       and add `assistant` to the `modules` array.
-    3. Rename this file's date prefix to match, so the folder still sorts.
-*/}
-
 export const meta = {
   slug: "ask-blipko",
   title: "Ask Blipko anything",
@@ -26,36 +9,73 @@ export const meta = {
 
 You could always log a spend by texting. Now you can ask about one.
 
-```
-You:    am I spending more than last month?
-Blipko: Yes — spending is up this cycle: ₹2,000 so far vs ₹400 for all of
-        July (+₹1,600).
-
-        ⚠️ This cycle is only day 9 of 31, so that's a partial month against
-        a full one.
-
-You:    can I afford a 5000 phone?
-Blipko: Yes ✅
-        Wants: ₹13,800 left → ₹8,800 after
-        ₹383/day for the remaining 23 days
-
-You:    set aside 2000 for the Goa trip
-Blipko: Ready to move ₹2,000 into your Goa trip box.
-
-        ➡️ Add ₹2,000 to Goa trip
-        [ ✅ Confirm ]  [ ✖️ Cancel ]
-```
-
 ### The numbers aren't guessed
 
-This is the part that matters. Every figure comes out of your own records, and
-every comparison is worked out before the AI is involved — affordability is a
-yes/tight/no decision made in code, cycle comparisons arrive with the difference
-already calculated. The AI chooses what to look up and how to say it. It doesn't
-do the arithmetic.
+This is the part that matters.
 
-Which also means it will tell you when it doesn't know. Ask about a category
-with nothing logged and you get "nothing recorded" — never a confident ₹0.
+<Img
+  src="/blipko.assistant.grounded.answer.webp"
+  alt="Blipko explaining the 50/30/20 split using the user's own budget figures, then logging a savings entry from the next message"
+  width={3840}
+  height={2880}
+  caption="Not a textbook answer — your split, your income, your remaining days."
+/>
+
+Ask how 50/30/20 works and you don't get the Wikipedia version. You get *your*
+split, worked out from the income you've actually logged this cycle, with what's
+left in each bucket and how many days it has to last.
+
+Every figure comes out of your own records, and every comparison is settled
+before the AI is involved — affordability is a yes/tight/no decision made in
+code, cycle comparisons arrive with the difference already calculated. The AI
+chooses what to look up and how to say it. It doesn't do the arithmetic.
+
+Which also means it will tell you no.
+
+<Img
+  src="/blipko.assistant.affordability.png"
+  alt="Blipko refusing a 12 lakh vehicle purchase with the exact shortfall, then checking the user's savings boxes and recurring rules"
+  width={2000}
+  height={1500}
+  caption="A straight no, the size of the gap, and what to do instead."
+/>
+
+Ask whether you can afford something well out of reach and you get a straight
+no with the size of the gap — then it goes and looks at what you'd actually
+need: your boxes, your recurring rules, what's already set aside. A budget that
+only ever says yes isn't worth asking.
+
+It will also tell you when it simply doesn't know. Ask about a category with
+nothing logged against it and you get "nothing recorded" — never a confident ₹0.
+
+### It can explain itself, too
+
+<Img
+  src="/blipko.assistant.features.explained.webp"
+  alt="Blipko listing its own features in chat, each with a line explaining what it is for"
+  width={3840}
+  height={2880}
+  caption="Every feature comes with the reason it exists."
+/>
+
+"What can you do?" used to be the one question the bot couldn't answer. Now it
+lists what it has — and *why* each one is there, because that's the thing people
+actually want to know before trusting an app with their money. Ask how it works,
+where your dashboard is, or who built it, and it answers from a maintained list
+rather than improvising, so it can't invent a feature that doesn't exist.
+
+### Ask out loud
+
+<Img
+  src="/blipko.assistant.voice.question.webp"
+  alt="A voice note asking how to save money, answered in chat with savings options and the list of commands"
+  width={3840}
+  height={2880}
+  caption="Voice notes work for questions now, not just for logging spends."
+/>
+
+Voice notes used to be for logging a spend. Now you can ask a question the same
+way and get the same grounded answer back.
 
 ### Changes are proposed, not made
 
@@ -63,12 +83,6 @@ It can edit a spend, delete one, set up a recurring rule, or move money into a
 box — but it only ever proposes. You get a one-line summary built from the
 actual record it would touch, and Confirm and Cancel buttons. Nothing is
 written until you tap.
-
-### It can explain itself
-
-Ask what it can do, how something works, or where your dashboard is, and it
-answers from a maintained list rather than improvising — so it won't invent a
-feature that doesn't exist.
 
 ### Also
 
