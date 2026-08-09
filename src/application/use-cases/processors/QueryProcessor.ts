@@ -25,6 +25,7 @@ export class QueryProcessor implements MessageProcessor {
   constructor(
     private readonly queryAgent: IFinancialQueryAgent,
     private readonly messageService: IMessagingPlatform,
+    private readonly webAppUrl: string,
   ) {}
 
   canHandle(context: ProcessContext): boolean {
@@ -52,6 +53,7 @@ export class QueryProcessor implements MessageProcessor {
           payday: user.payday,
           monthlyIncome: formatMoney(Number(user.monthlyIncome ?? 0)),
           today: zonedYmd(now, tz),
+          dashboardUrl: this.webAppUrl,
           period: {
             start: zonedYmd(start, tz),
             // `end` is exclusive internally; the agent is told the inclusive

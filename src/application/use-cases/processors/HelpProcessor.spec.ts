@@ -8,7 +8,7 @@ describe("HelpProcessor", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     messageService = { sendMessage: vi.fn().mockResolvedValue("m1") };
-    processor = new HelpProcessor(messageService);
+    processor = new HelpProcessor(messageService, "https://blipko.lol");
   });
 
   it("matches 'help' and '/help' only", () => {

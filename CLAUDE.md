@@ -289,6 +289,21 @@ the agent touch a repository directly.
 `historyTrimmer.ts` drops whole exchanges from the oldest end and never splits a
 `tool_use` from its `tool_result` (an orphan is rejected by the API).
 
+**Product questions are grounded too.** The assistant may discuss the user's money
+*and* Blipko itself — nothing else. Product answers come from
+`src/domain/productFacts.ts` via `get_product_info`, never from model knowledge: an
+invented feature sends the user hunting for something that does not exist.
+
+**Update `productFacts.ts` when you ship or remove a user-facing feature.** It is
+the file the bot speaks from, and it is deliberately *not* generated from
+`README.md` — the README currently still describes the in-chat onboarding wizard
+that `ConnectAccountProcessor` replaced with a dashboard hand-off, and omits
+`/boxes`. Keep it in sync with the code.
+
+`open_dashboard` returns a URL that `AssistantProcessor` renders as a button (a
+pending write takes precedence over it). Every dashboard link — assistant, `/help`,
+the connect hand-off — comes from `env.WEB_APP_URL`, never a hardcoded domain.
+
 ### Frontend: Server Actions pattern
 
 All data fetching/mutations in `web/` use **Next.js Server Actions** in `web/src/lib/actions/` — no custom API routes. Prisma is called directly (`web/src/lib/prisma.ts`).

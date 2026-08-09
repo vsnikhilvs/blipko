@@ -4,6 +4,7 @@ import {
   IFinancialDataTools,
 } from "../../domain/services/IFinancialDataTools";
 import { IAssistantWriteTools } from "../../domain/services/IAssistantWriteTools";
+import { buildProductFacts } from "../../domain/productFacts";
 import { logger } from "../../utils/logger";
 import { describeError } from "../../utils/describeError";
 
@@ -158,6 +159,40 @@ export function buildToolCatalog(
       properties: {},
       required: [],
     },
+    {
+      name: "get_product_info",
+      description:
+        "Facts about Blipko itself: what it is, what it can do, the commands, the dashboard, how your data is handled, and who built it. Use this for ANY question about the product — 'what can you do?', 'how does this work?', 'who made you?', 'how does this help me?'. Never answer those from your own knowledge: this returns the truth for THIS build, and anything you invent will send the user looking for a feature that does not exist.",
+      properties: {
+        topic: {
+          type: "string",
+          enum: [
+            "overview",
+            "features",
+            "commands",
+            "dashboard",
+            "privacy",
+            "creator",
+          ],
+          description:
+            "Omit for the overview. 'features' includes what each one is for, which is what to use when asked how Blipko helps them.",
+        },
+      },
+      required: [],
+    },
+    {
+      name: "open_dashboard",
+      description:
+        "Show the user a tappable button to their dashboard. Use when they ask for it, and when what they want genuinely lives there — charts and trends, editing categories or their limits, changing income, CSV export, or connecting an account. Do not use it to dodge a question you can answer from their data.",
+      properties: {
+        reason: {
+          type: "string",
+          description:
+            "What they should do there, e.g. 'edit category limits'.",
+        },
+      },
+      required: ["reason"],
+    },
     ...(includeWrites ? writeTools(categoryProp) : []),
   ];
 }
@@ -245,14 +280,25 @@ function writeTools(categoryProp: Record<string, unknown>): ToolDef[] {
 
 // Runs a tool and ALWAYS resolves. A throw would kill the whole turn with no
 // model-visible recovery; a soft error lets it correct itself in-loop.
+// Everything a tool call needs that does not come from the model.
+export interface ToolRunContext {
+  tools: IFinancialDataTools;
+  userId: string;
+  categoryNames: string[];
+  // Null for the read-only lane, which has no propose_* tools.
+  writes?: IAssistantWriteTools | null | undefined;
+  // From env.WEB_APP_URL, never hardcoded — a link the bot hands out must not
+  // be able to disagree with where the app is actually deployed.
+  dashboardUrl: string;
+}
+
 export async function runAssistantTool(
-  tools: IFinancialDataTools,
+  ctx: ToolRunContext,
   name: string,
   rawArgs: unknown,
-  userId: string,
-  categoryNames: string[],
-  writes: IAssistantWriteTools | null = null,
 ): Promise<unknown> {
+  const { tools, userId, categoryNames, dashboardUrl } = ctx;
+  const writes = ctx.writes ?? null;
   const args = normalizeArgs(rawArgs);
   if (!args) {
     return {
@@ -278,6 +324,9 @@ export async function runAssistantTool(
   const bucket = asBucket(args.bucket);
 
   try {
+    const product = dispatchProduct(name, args, dashboardUrl);
+    if (product !== undefined) return product;
+
     const proposal = await dispatchWrite(writes, name, args, userId);
     if (proposal !== undefined) return proposal;
 
@@ -308,6 +357,54 @@ export async function runAssistantTool(
       message:
         "That lookup failed. Try a different tool, or tell the user you cannot answer right now.",
     };
+  }
+}
+
+// Questions about Blipko itself. Answered from a curated file for the same
+// reason financial figures are: the model's own impression of what a budgeting
+// app does would be plausible, confident and occasionally invented.
+function dispatchProduct(
+  name: string,
+  args: Record<string, unknown>,
+  dashboardUrl: string,
+): unknown | undefined {
+  const facts = buildProductFacts(dashboardUrl);
+
+  if (name === "open_dashboard") {
+    return {
+      ok: true,
+      url: facts.dashboard.url,
+      // The caller renders this as a button; the model should not paste the
+      // raw URL into its reply as well.
+      instruction:
+        "A tappable dashboard button is being shown to the user. Tell them what to do there — do not repeat the URL.",
+    };
+  }
+
+  if (name !== "get_product_info") return undefined;
+
+  const topic = asString(args.topic);
+  switch (topic) {
+    case "features":
+      return { ok: true, features: facts.features };
+    case "commands":
+      return { ok: true, commands: facts.commands };
+    case "dashboard":
+      return { ok: true, dashboard: facts.dashboard };
+    case "privacy":
+      return { ok: true, dataHandling: facts.dataHandling };
+    case "creator":
+      return { ok: true, creator: facts.creator };
+    default:
+      return {
+        ok: true,
+        whatItIs: facts.whatItIs,
+        howLoggingWorks: facts.howLoggingWorks,
+        features: facts.features.map((f) => f.name),
+        commands: facts.commands,
+        dashboardUrl: facts.dashboard.url,
+        note: "This is the overview. Call get_product_info again with a topic for the detail behind any of it.",
+      };
   }
 }
 

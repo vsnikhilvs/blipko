@@ -33,6 +33,7 @@ export class AssistantProcessor implements MessageProcessor {
   constructor(
     private readonly agent: IAssistantAgent | null,
     private readonly messageService: IMessagingPlatform,
+    private readonly webAppUrl: string,
   ) {}
 
   canHandle(context: ProcessContext): boolean {
@@ -73,6 +74,7 @@ export class AssistantProcessor implements MessageProcessor {
         payday: user.payday,
         monthlyIncome: formatMoney(Number(user.monthlyIncome ?? 0)),
         today: zonedYmd(now, tz),
+        dashboardUrl: this.webAppUrl,
         period: {
           start: zonedYmd(start, tz),
           end: zonedYmd(new Date(end.getTime() - 1), tz),
@@ -101,6 +103,18 @@ export class AssistantProcessor implements MessageProcessor {
           [
             { id: actCb.confirm(answer.pendingAction.id), title: "✅ Confirm" },
             { id: actCb.cancel(answer.pendingAction.id), title: "✖️ Cancel" },
+          ],
+        ]);
+      } else if (answer.dashboardUrl) {
+        // A pending write takes precedence: an unanswered "confirm?" must not
+        // be buried under a link to somewhere else.
+        await this.messageService.sendInteractiveMessage(platformUserId, body, [
+          [
+            {
+              id: "dashboard",
+              title: "🔗 Open dashboard",
+              url: answer.dashboardUrl,
+            },
           ],
         ]);
       } else {

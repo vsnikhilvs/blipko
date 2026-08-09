@@ -163,12 +163,15 @@ export class ClaudeAssistantAgent implements IAssistantAgent {
     categoryNames: string[],
   ): Promise<unknown> {
     return runAssistantTool(
-      this.tools,
+      {
+        tools: this.tools,
+        writes: this.writes,
+        userId: ctx.userId,
+        categoryNames,
+        dashboardUrl: ctx.dashboardUrl,
+      },
       req.name,
       req.input,
-      ctx.userId,
-      categoryNames,
-      this.writes,
     );
   }
 
@@ -203,6 +206,7 @@ export class ClaudeAssistantAgent implements IAssistantAgent {
       outputTokens,
       ungroundedAmounts,
       pendingAction: latestProposal(toolCalls),
+      dashboardUrl: requestedDashboard(toolCalls),
     };
   }
 
@@ -228,13 +232,26 @@ How to answer:
 - Say which window your numbers cover; the tools echo back the range they used.
 - If the tools cannot answer the question, say so plainly rather than estimating.
 
-Style: short and skimmable for Telegram. *bold* for key numbers, no preamble, no sign-off. Only discuss the user's budget, spending and income; politely decline anything else.`,
+Questions about Blipko itself — what you can do, how something works, how it helps them, who built it, where the dashboard is — are in scope. Answer them with get_product_info, never from your own knowledge: a feature you invent sends the user looking for something that does not exist. Use open_dashboard when what they want genuinely lives there.
+
+Style: short and skimmable for Telegram. *bold* for key numbers, no preamble, no sign-off. Discuss the user's money and Blipko itself; politely decline anything else.`,
         // The system prompt and tool definitions are identical between turns;
         // caching them cuts input cost sharply on a multi-round conversation.
         cache_control: { type: "ephemeral" },
       },
     ];
   }
+}
+
+// The URL from a successful open_dashboard call, so the caller can render a
+// button. Explicit: the model asks for it, we do not infer it from the text.
+function requestedDashboard(toolCalls: ToolCallRecord[]): string | undefined {
+  for (let i = toolCalls.length - 1; i >= 0; i--) {
+    const call = toolCalls[i]!;
+    const r = call.result as { ok?: boolean; url?: string } | undefined;
+    if (call.name === "open_dashboard" && r?.ok === true && r.url) return r.url;
+  }
+  return undefined;
 }
 
 function isProposal(toolName: string): boolean {

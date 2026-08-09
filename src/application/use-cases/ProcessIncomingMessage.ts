@@ -139,7 +139,7 @@ export class ProcessIncomingMessageUseCase {
       ),
       new ConnectAccountProcessor(messageService, webAppUrl),
       new SettingsProcessor(userRepository, messageService),
-      new HelpProcessor(messageService),
+      new HelpProcessor(messageService, webAppUrl),
       new StatusProcessor(
         expenseRepository,
         budgetConfigRepository,
@@ -214,8 +214,8 @@ export class ProcessIncomingMessageUseCase {
       new BoxProcessor(boxRepository, messageService),
       // Assistant lane first; it yields when unconfigured so QueryProcessor
       // stays the answer path until the lane is switched on.
-      new AssistantProcessor(this.assistantAgent, messageService),
-      new QueryProcessor(queryAgent, messageService),
+      new AssistantProcessor(this.assistantAgent, messageService, webAppUrl),
+      new QueryProcessor(queryAgent, messageService, webAppUrl),
       new FallbackProcessor(messageService),
     ];
   }

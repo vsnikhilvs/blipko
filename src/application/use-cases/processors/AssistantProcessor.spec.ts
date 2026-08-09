@@ -46,17 +46,29 @@ describe("AssistantProcessor", () => {
 
   describe("gating", () => {
     it("handles QUERY when an agent is configured", () => {
-      const p = new AssistantProcessor(agent, messageService);
+      const p = new AssistantProcessor(
+        agent,
+        messageService,
+        "https://blipko.lol",
+      );
       expect(p.canHandle(ctx())).toBe(true);
     });
 
     it("yields when no agent is configured, leaving QueryProcessor to answer", () => {
-      const p = new AssistantProcessor(null, messageService);
+      const p = new AssistantProcessor(
+        null,
+        messageService,
+        "https://blipko.lol",
+      );
       expect(p.canHandle(ctx())).toBe(false);
     });
 
     it("ignores non-QUERY intents", () => {
-      const p = new AssistantProcessor(agent, messageService);
+      const p = new AssistantProcessor(
+        agent,
+        messageService,
+        "https://blipko.lol",
+      );
       expect(
         p.canHandle(ctx({ parsed: { intent: "EXPENSE", confidence: 1 } })),
       ).toBe(false);
@@ -64,7 +76,11 @@ describe("AssistantProcessor", () => {
   });
 
   it("sends the answer and returns the tool trace for the turn log", async () => {
-    const p = new AssistantProcessor(agent, messageService);
+    const p = new AssistantProcessor(
+      agent,
+      messageService,
+      "https://blipko.lol",
+    );
     const out = await p.process(ctx());
 
     expect(messageService.sendMessage).toHaveBeenCalledWith({
@@ -94,7 +110,11 @@ describe("AssistantProcessor", () => {
       // prose is not. Confirming a button whose payload was never shown is a
       // rubber stamp, not a confirmation.
       agent.answer.mockResolvedValue(proposal);
-      const p = new AssistantProcessor(agent, messageService);
+      const p = new AssistantProcessor(
+        agent,
+        messageService,
+        "https://blipko.lol",
+      );
       await p.process(ctx());
 
       const [, body] = messageService.sendInteractiveMessage.mock.calls[0]!;
@@ -103,7 +123,11 @@ describe("AssistantProcessor", () => {
 
     it("renders confirm/cancel buttons bound to the proposal id", async () => {
       agent.answer.mockResolvedValue(proposal);
-      const p = new AssistantProcessor(agent, messageService);
+      const p = new AssistantProcessor(
+        agent,
+        messageService,
+        "https://blipko.lol",
+      );
       await p.process(ctx());
 
       const [, , rows] = messageService.sendInteractiveMessage.mock.calls[0]!;
@@ -117,7 +141,11 @@ describe("AssistantProcessor", () => {
         ...proposal,
         pendingAction: { id: "p1", summary: "Delete ₹220 (lunch_with *boss*)" },
       });
-      const p = new AssistantProcessor(agent, messageService);
+      const p = new AssistantProcessor(
+        agent,
+        messageService,
+        "https://blipko.lol",
+      );
       await p.process(ctx());
 
       const [, body] = messageService.sendInteractiveMessage.mock.calls[0]!;
@@ -126,13 +154,21 @@ describe("AssistantProcessor", () => {
 
     it("records the confirmed body, so history matches what the user saw", async () => {
       agent.answer.mockResolvedValue(proposal);
-      const p = new AssistantProcessor(agent, messageService);
+      const p = new AssistantProcessor(
+        agent,
+        messageService,
+        "https://blipko.lol",
+      );
       const out = await p.process(ctx());
       expect(out.response).toContain("Add ₹2,000 to Goa trip");
     });
 
     it("sends a plain message when there is nothing to confirm", async () => {
-      const p = new AssistantProcessor(agent, messageService);
+      const p = new AssistantProcessor(
+        agent,
+        messageService,
+        "https://blipko.lol",
+      );
       await p.process(ctx());
       expect(messageService.sendMessage).toHaveBeenCalled();
       expect(messageService.sendInteractiveMessage).not.toHaveBeenCalled();
@@ -140,14 +176,22 @@ describe("AssistantProcessor", () => {
   });
 
   it("shows a typing indicator before the slow call", async () => {
-    const p = new AssistantProcessor(agent, messageService);
+    const p = new AssistantProcessor(
+      agent,
+      messageService,
+      "https://blipko.lol",
+    );
     await p.process(ctx());
     expect(messageService.sendTypingIndicator).toHaveBeenCalledWith("123");
   });
 
   it("passes the user's local date and cycle, not the server's", async () => {
     vi.setSystemTime(new Date("2026-08-11T20:00:00Z")); // 01:30 IST on Aug 12
-    const p = new AssistantProcessor(agent, messageService);
+    const p = new AssistantProcessor(
+      agent,
+      messageService,
+      "https://blipko.lol",
+    );
     await p.process(ctx());
 
     // A UTC date here would tell the assistant it is still Aug 11.
@@ -157,14 +201,22 @@ describe("AssistantProcessor", () => {
   });
 
   it("gives the agent an abort signal so a hung call is cancelled, not just ignored", async () => {
-    const p = new AssistantProcessor(agent, messageService);
+    const p = new AssistantProcessor(
+      agent,
+      messageService,
+      "https://blipko.lol",
+    );
     await p.process(ctx());
     expect(agent.answer.mock.calls[0]![1].signal).toBeInstanceOf(AbortSignal);
   });
 
   it("degrades to a friendly nudge when the agent fails", async () => {
     agent.answer.mockRejectedValue(new Error("provider down"));
-    const p = new AssistantProcessor(agent, messageService);
+    const p = new AssistantProcessor(
+      agent,
+      messageService,
+      "https://blipko.lol",
+    );
     const out = await p.process(ctx());
 
     expect(out.response).toContain("/status");
@@ -174,7 +226,11 @@ describe("AssistantProcessor", () => {
 
   it("still answers when the typing indicator fails", async () => {
     messageService.sendTypingIndicator.mockRejectedValue(new Error("429"));
-    const p = new AssistantProcessor(agent, messageService);
+    const p = new AssistantProcessor(
+      agent,
+      messageService,
+      "https://blipko.lol",
+    );
     const out = await p.process(ctx());
     expect(out.response).toBe(answer.text);
   });

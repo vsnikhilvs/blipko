@@ -63,11 +63,14 @@ export class OpenAiQueryAgent implements IFinancialQueryAgent {
               ? {
                   id: call.id,
                   result: await runAssistantTool(
-                    this.tools,
+                    {
+                      tools: this.tools,
+                      userId: ctx.userId,
+                      categoryNames,
+                      dashboardUrl: ctx.dashboardUrl,
+                    },
                     call.function.name,
                     call.function.arguments,
-                    ctx.userId,
-                    categoryNames,
                   ),
                 }
               : null,
@@ -110,6 +113,7 @@ Rules:
 - If a tool returns { "ok": false }, read the error and try a corrected call. Never present a failed call as data.
 - State the window you are talking about (the tools echo back the range they used).
 - Keep replies short and skimmable for Telegram. Use Markdown sparingly (*bold* for key numbers). No preamble.
-- Only answer questions about the user's budget/spending/income. Politely decline anything else.`;
+- Questions about Blipko itself (what you can do, how it works, who built it, the dashboard) are in scope — answer them with get_product_info rather than from your own knowledge. Use open_dashboard when what they want lives there.
+- Politely decline anything outside the user's money and Blipko itself.`;
   }
 }

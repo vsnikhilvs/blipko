@@ -13,6 +13,7 @@ export interface QueryAgentContext {
   payday: number;
   monthlyIncome: string; // formatted; expected salary (a floor), actual may exceed it
   today: string;
+  dashboardUrl: string;
   period: {
     start: string;
     end: string; // inclusive last day of the cycle

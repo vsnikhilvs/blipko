@@ -8,6 +8,9 @@ export interface AssistantContext {
   payday: number;
   monthlyIncome: string; // formatted
   today: string;
+  // From env.WEB_APP_URL, so a link the assistant hands out always matches
+  // where the app is actually deployed.
+  dashboardUrl: string;
   period: {
     start: string;
     end: string; // inclusive last day
@@ -42,6 +45,9 @@ export interface AssistantAnswer {
   // Set when the assistant proposed a write. Nothing has changed yet; the
   // caller renders confirm/cancel buttons against this id.
   pendingAction?: { id: string; summary: string } | undefined;
+  // Set when the assistant decided the user should go to the dashboard. The
+  // caller renders it as a button rather than pasting a URL into the text.
+  dashboardUrl?: string | undefined;
 }
 
 export interface IAssistantAgent {
