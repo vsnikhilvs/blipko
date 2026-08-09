@@ -5,6 +5,11 @@ import { z } from "zod";
 export const BUCKETS = ["NEEDS", "WANTS", "SAVINGS"] as const;
 export type ParsedBucket = (typeof BUCKETS)[number];
 
+// ESCALATE is the assistant lane's only non-logging outcome: "this is not a
+// clear spend or income — hand it to the assistant". When the lane is on, the
+// parser emits nothing else, so classifying between STATUS/UNDO/RECURRING/BOX/
+// QUERY stops being a job it can get wrong. Those intents remain for the
+// deterministic path used when the lane is off.
 export const PARSED_INTENTS = [
   "EXPENSE",
   "INCOME",
@@ -13,6 +18,7 @@ export const PARSED_INTENTS = [
   "RECURRING",
   "QUERY",
   "BOX",
+  "ESCALATE",
   "UNKNOWN",
 ] as const;
 export type ParsedIntent = (typeof PARSED_INTENTS)[number];

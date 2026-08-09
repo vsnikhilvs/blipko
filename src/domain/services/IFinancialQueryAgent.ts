@@ -3,16 +3,19 @@ import { ConversationTurn } from "./IAiParser";
 // Context the query agent needs to ground its answer. The agent itself is
 // read-only: it calls IFinancialDataTools to fetch real numbers and composes a
 // natural-language reply. It never writes/edits/deletes.
+// Dates here are YYYY-MM-DD in the USER'S timezone, never the server's — the
+// agent resolves "yesterday" against `today`, so a UTC date would put an IST
+// user a day behind every evening.
 export interface QueryAgentContext {
   userId: string;
   currency: string;
   locale: string;
   payday: number;
-  monthlyIncome: number; // expected salary (a floor); actual income may exceed it
-  now: Date;
+  monthlyIncome: string; // formatted; expected salary (a floor), actual may exceed it
+  today: string;
   period: {
-    start: string; // ISO
-    end: string; // ISO (exclusive)
+    start: string;
+    end: string; // inclusive last day of the cycle
     day: number;
     daysInPeriod: number;
     remainingDays: number;

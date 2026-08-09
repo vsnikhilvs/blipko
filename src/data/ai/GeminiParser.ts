@@ -1,6 +1,7 @@
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { IAiParser, ParseContext } from "../../domain/services/IAiParser";
 import {
+  PARSED_INTENTS,
   ParsedBatch,
   ParsedBatchSchema,
 } from "../../domain/entities/ParsedData";
@@ -16,16 +17,9 @@ const transactionSchema: Schema = {
   properties: {
     intent: {
       type: Type.STRING,
-      enum: [
-        "EXPENSE",
-        "INCOME",
-        "UNDO",
-        "STATUS",
-        "RECURRING",
-        "QUERY",
-        "BOX",
-        "UNKNOWN",
-      ],
+      // Sourced from the domain enum so a new intent can't be valid in Zod but
+      // unreachable in the schema the model is actually given.
+      enum: [...PARSED_INTENTS],
       description:
         'EXPENSE if the user spent money. INCOME if they received money/declared salary. STATUS for a plain overall budget-health check ("status", "how much is left"). UNDO to remove the last entry. RECURRING to set up a repeating monthly income/expense ("every month", "monthly", "on the Nth"). QUERY when the user ASKS a data-backed question about their spending/income/budget ("how much did I spend on food?", "biggest expense?", "can I afford X?", trends/comparisons) — a question, never a statement that logs money. BOX to add money to / withdraw from a NAMED savings goal or fund ("add 5000 to New York", "take 2000 from house fund") — only with explicit box phrasing, never ordinary spending. UNKNOWN for social/non-financial messages.',
     },
@@ -108,8 +102,7 @@ export class GeminiParser implements IAiParser {
   }
 
   async parseText(text: string, ctx: ParseContext): Promise<ParsedBatch> {
-    const today = new Date().toISOString().split("T")[0];
-    const promptText = `[Today: ${today}]\n${text}`;
+    const promptText = `[Today: ${ctx.today}]\n${text}`;
 
     const response = await this.client.models.generateContent({
       model: this.modelName,
@@ -117,7 +110,11 @@ export class GeminiParser implements IAiParser {
       // not as real model turns — see historyBlock.ts.
       contents: [{ role: "user", parts: [{ text: promptText }] }],
       config: {
-        systemInstruction: buildBudgetSystemPrompt(ctx.categories, ctx.history),
+        systemInstruction: buildBudgetSystemPrompt(
+          ctx.categories,
+          ctx.history,
+          ctx.assistantMode,
+        ),
         responseMimeType: "application/json",
         responseSchema: budgetSchema,
         temperature: 0.1,

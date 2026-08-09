@@ -2,14 +2,9 @@ import { IAiParser, ParseContext } from "../../domain/services/IAiParser";
 import { ParsedBatch } from "../../domain/entities/ParsedData";
 import { withTimeout } from "../../utils/withTimeout";
 import { logger } from "../../utils/logger";
+import { describeError } from "../../utils/describeError";
 
 const log = logger.child({ component: "ai" });
-
-// The logger JSON-stringifies its fields, and an Error serializes to `{}` —
-// which would hide the very Zod message that says what the provider got wrong.
-function describeError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 // A slow/hung provider call must not block the webhook indefinitely.
 const PARSE_TIMEOUT_MS = 12_000;

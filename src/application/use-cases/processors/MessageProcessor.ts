@@ -2,6 +2,7 @@ import { User } from "@prisma/client";
 import { ParsedData, ParsedBatch } from "../../../domain/entities/ParsedData";
 import { ConversationTurn } from "../../../domain/services/IAiParser";
 import { TransactionRef } from "../transactionActions";
+import { TurnMeta } from "../../../domain/repositories/IConversationRepository";
 
 export interface ProcessContext {
   user: User;
@@ -26,6 +27,14 @@ export interface ProcessOutput {
   parsed: ParsedData;
   // Optional short toast shown on the tapped inline button.
   toast?: string | undefined;
+  // Extra detail to persist with this turn (tool trace, model, latency, cost).
+  // Set by the assistant lane; deterministic processors leave it unset.
+  turnMeta?: TurnMeta | undefined;
+  // Short stand-in stored in the transcript instead of `response`. For replies
+  // that are a pure rendering of data the AI can fetch on demand (/status,
+  // /report), the full text is a money dump with no follow-up value — and it
+  // would otherwise be replayed into the parser's prompt on every later message.
+  historyText?: string | undefined;
 }
 
 export interface MessageProcessor {

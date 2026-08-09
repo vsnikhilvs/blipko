@@ -5,9 +5,11 @@ import {
 } from "./MessageProcessor";
 import { IFinancialQueryAgent } from "../../../domain/services/IFinancialQueryAgent";
 import { IMessagingPlatform } from "../../interfaces/IMessagingPlatform";
-import { currentBudgetPeriod, periodDayInfo } from "../budgetMath";
+import { currentBudgetPeriod, formatMoney, periodDayInfo } from "../budgetMath";
+import { zonedYmd } from "../../../utils/time";
 import { withTimeout } from "../../../utils/withTimeout";
 import { logger } from "../../../utils/logger";
+import { describeError } from "../../../utils/describeError";
 
 const FALLBACK =
   "I couldn't work that out right now — try /status, or rephrase your question.";
@@ -32,10 +34,12 @@ export class QueryProcessor implements MessageProcessor {
   async process(context: ProcessContext): Promise<ProcessOutput> {
     const { user, platformUserId, textMessage } = context;
     const now = new Date();
-    const { start, end } = currentBudgetPeriod(user.payday, now);
+    const tz = user.timezone;
+    const { start, end } = currentBudgetPeriod(user.payday, now, tz);
     const { day, daysInPeriod, remainingDays } = periodDayInfo(
       user.payday,
       now,
+      tz,
     );
 
     let body: string;
@@ -46,11 +50,13 @@ export class QueryProcessor implements MessageProcessor {
           currency: user.currency,
           locale: user.locale,
           payday: user.payday,
-          monthlyIncome: Number(user.monthlyIncome ?? 0),
-          now,
+          monthlyIncome: formatMoney(Number(user.monthlyIncome ?? 0)),
+          today: zonedYmd(now, tz),
           period: {
-            start: start.toISOString(),
-            end: end.toISOString(),
+            start: zonedYmd(start, tz),
+            // `end` is exclusive internally; the agent is told the inclusive
+            // last day so it never reports a cycle as one day longer.
+            end: zonedYmd(new Date(end.getTime() - 1), tz),
             day,
             daysInPeriod,
             remainingDays,
@@ -65,7 +71,7 @@ export class QueryProcessor implements MessageProcessor {
         component: "query",
         userId: user.id,
         question: textMessage,
-        err: error,
+        err: describeError(error),
       });
       body = FALLBACK;
     }

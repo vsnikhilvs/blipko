@@ -112,6 +112,7 @@ model User {
   boxEntries     BoxEntry[]
 
   conversationMessages ConversationMessage[]
+  pendingActions       PendingAction[]
   telegramLinkToken    TelegramLinkToken?
 }
 
@@ -383,13 +384,57 @@ model ProcessedMessage {
   processedAt DateTime @default(now())
 }
 
+// Rolling chat history replayed to the AI. Beyond the rendered text, a turn
+// carries what the bot actually DID (intent, the rows it touched, the tools it
+// called) so a follow-up like "make it 50" resolves to a real transaction
+// instead of being guessed from emoji-laden prose. The AI-metadata columns are
+// nullable: deterministic slash-command turns fill none of them.
 model ConversationMessage {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role      String
-  content   String
+  id String @id @default(cuid())
+  // Append order. createdAt is not safe to order by: two turns written in the
+  // same millisecond tie, and across instances clocks drift — either way the
+  // transcript replayed to the model comes back scrambled.
+  seq     Int    @default(autoincrement())
+  userId  String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role    String
+  content String
+
+  // What the turn resolved to, and which rows it touched.
+  intent     String?
+  entityRefs Json?
+
+  // Per-turn AI trace: [{ name, args, result }]. Null for non-AI turns.
+  toolCalls Json?
+
+  // Observability — which model answered, how slow, how much it cost.
+  provider     String?
+  model        String?
+  latencyMs    Int?
+  inputTokens  Int?
+  outputTokens Int?
+  costUsd      Decimal? @db.Decimal(10, 6)
+
   createdAt DateTime @default(now())
+
+  @@index([userId, seq])
+}
+
+// A write the assistant has PROPOSED but not performed. The agent's tools only
+// ever create one of these; the user confirms with an inline button and a
+// deterministic processor does the actual write. Keeps a misread instruction
+// from silently mutating the ledger, the way a hallucinated income already
+// inflates every bucket budget today.
+model PendingAction {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind       String // PendingActionKind — validated with Zod on read
+  payload    Json
+  summary    String // what the user is shown before confirming
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
 
   @@index([userId, createdAt])
 }

@@ -97,6 +97,24 @@ pnpm test
 
 Unit tests use **vitest** with vi mocks. The Playwright suite (`tests/api.spec.ts`) tests HTTP endpoints against a live server and uses `.env.example` for env vars.
 
+`tsconfig.json` **excludes `**/*.spec.ts`**, so `tsc --noEmit` does not typecheck
+tests — a spec can be badly typed and still pass CI's build step. Run
+`pnpm test:unit` too.
+
+AI provider SDKs are mocked at the module boundary (`vi.mock("openai")`,
+`vi.mock("@anthropic-ai/sdk")`) with `vi.hoisted()` for the shared spy — `vi.mock`
+is lifted above the file, so a plain top-level `const` does not exist when the
+factory runs. `src/config/env.ts` parses `process.env` at import and is mocked in
+specs that pull in a provider.
+
+### Environment
+
+`src/config/env.ts` validates everything at boot and **exits** on a bad value.
+`GEMINI_API_KEY`, `OPENAI_API_KEY`, `DATABASE_URL`, `TELEGRAM_*` are required.
+Optional: `OPENAI_PARSER_MODEL`, `SARVAM_API_KEY`, and the assistant lane
+(`ASSISTANT_ENABLED`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`) which default to
+off/blank so a missing key degrades instead of breaking boot.
+
 ### Frontend (`web/`)
 
 ```bash
@@ -128,8 +146,10 @@ Both read the **same** `prisma/schema.prisma`. The web app accesses the DB direc
 ```
 domain/          ← Pure interfaces and entity types. No imports from outer layers.
   entities/      ← ParsedData (Zod schema + ParsedIntent / Bucket literals)
+                   PendingAction (Zod payload schemas for proposed writes)
   repositories/  ← I*Repository interfaces
-  services/      ← IAiParser, IFinancialQueryAgent, IFinancialDataTools
+  services/      ← IAiParser, IFinancialQueryAgent, IFinancialDataTools,
+                   IAssistantAgent, IAssistantWriteTools
   categoryTemplate.ts  ← default category taxonomy used by onboarding
 
 application/     ← Use cases. Depends only on domain interfaces.
@@ -140,12 +160,15 @@ application/     ← Use cases. Depends only on domain interfaces.
     PostRecurringCharges.ts     ← Posts due recurring rules as expenses/income
     SendBudgetNudges.ts         ← Dosage-aware budget reminder nudges
     budgetMath.ts, suggestCategoryBudgets.ts  ← budget helpers
+    actCallback.ts, txnCallback.ts  ← callback_data grammars
+    query/                      ← FinancialDataTools (reads), AssistantWriteTools (proposals)
     processors/                 ← One processor per parsed intent / command
 
 data/            ← Concrete implementations. Only layer that imports Prisma.
   repositories/  ← Prisma*Repository classes
-  ai/            ← GeminiParser, OpenAIParser, FallbackAiParser,
-                   OpenAiQueryAgent, SarvamTranscriptionService, budgetParserPrompt
+  ai/            ← GeminiParser, OpenAIParser, FallbackAiParser, budgetParserPrompt,
+                   ClaudeAssistantAgent, OpenAiQueryAgent, assistantTools,
+                   historyTrimmer, groundingCheck, SarvamTranscriptionService
   messaging/     ← TelegramMessageService, TelegramMediaService
 
 presentation/    ← Express routes + controllers (TelegramWebhookController)
@@ -158,48 +181,113 @@ Telegram webhook (POST /api/webhooks/telegram)
   → TelegramWebhookController   (idempotency: ProcessedMessage written here)
   → ProcessIncomingMessageUseCase.execute()
       1. ensureUserExists()        — handles `/start <linkToken>` web↔bot linking
-      2. Load recent conversation history (last 6 turns)
+      2. Load recent conversation history (last 6 rows)
       3. preParseProcessors  — first canHandle() wins, NO AI
-      4. aiParser.parseText(text, { categories, history }) → ParsedData
+      4. aiParser.parseText(text, { categories, history, today, assistantMode })
       5. postParseProcessors — first canHandle() wins
-         (conversation turns saved fire-and-forget after a post-parse handle)
+      → recordExchange() on BOTH paths (fire-and-forget)
 ```
+
+`today` is `YYYY-MM-DD` in the **user's** timezone. Never derive it inside a parser
+from `toISOString()` — a UTC date tells an IST user it is yesterday every evening
+after 18:30.
 
 **Processors** (`src/application/use-cases/processors/`), implement `MessageProcessor`.
 
-Pre-parse (button callbacks, commands, onboarding — run before AI):
+Pre-parse (button callbacks and commands — run before AI):
 
 | Processor | Handles |
 |---|---|
-| `ConfirmBucketProcessor` | inline-keyboard bucket disambiguation replies |
-| `RecurringConfirmProcessor` | recurring income/expense confirm buttons |
-| `OnboardingProcessor` | multi-step wizard: income → category groups → reminder dosage |
-| `SettingsProcessor` | settings (e.g. notification dosage) |
+| `PendingActionProcessor` | `act:<id>:y\|n` — confirms an assistant-proposed write (only when the assistant lane is on) |
+| `TransactionActionProcessor` | `txn:` callbacks — delete/edit/restore |
+| `ConfirmBucketProcessor` | `bkt:` inline-keyboard bucket disambiguation |
+| `RecurringConfirmProcessor` | `rec:` recurring confirm buttons |
+| `ConnectAccountProcessor` | hands unlinked users to the web dashboard |
+| `SettingsProcessor` | `/settings` — income, notification dosage |
 | `HelpProcessor` | `/help` |
 | `StatusProcessor` | `/status` — budget health, safe daily spend |
 | `ReportProcessor` | `/report` — monthly summary |
-| `UndoProcessor` | undo last entry |
+| `BoxCommandProcessor` | `/boxes` |
+| `RecurringCommandProcessor` | `/recurring` |
+| `UndoProcessor` | plain `undo` |
 
 Post-parse (dispatched on `ParsedData.intent`):
 
 | Processor | Intent |
 |---|---|
+| `TransactionReplyProcessor` | reply-to-confirmation → edit/delete |
+| `AssistantProcessor` | `ESCALATE`, `QUERY` — yields when the lane is off |
 | `StatusProcessor` | `STATUS` |
 | `UndoProcessor` | `UNDO` |
+| `BatchProcessor` | ≥2 parsed transactions |
 | `ExpenseProcessor` | `EXPENSE` |
 | `IncomeProcessor` | `INCOME` |
 | `RecurringSetupProcessor` | `RECURRING` |
-| `QueryProcessor` | `QUERY` (delegates to `OpenAiQueryAgent`) |
+| `BoxProcessor` | `BOX` |
+| `QueryProcessor` | `QUERY` (legacy path, `OpenAiQueryAgent`) |
 | `FallbackProcessor` | everything else (`canHandle` always true) |
 
 ### AI parsing
 
-`GeminiParser` uses Gemini structured output (`responseMimeType: "application/json"` + `responseSchema`). `OpenAIParser` mirrors the interface. `FallbackAiParser` chains them: Gemini → OpenAI → hard-coded fallback. Parser output is validated against `ParsedDataSchema` (Zod) in `domain/entities/ParsedData.ts`; the user's existing categories are passed in as hints.
+`FallbackAiParser` chains **OpenAI → Gemini → hard-coded `UNKNOWN` stub**, one
+attempt each, 12s timeout per provider. `GeminiParser` and `OpenAIParser` both use
+structured output; results are validated against `ParsedBatchSchema` (Zod) in
+`domain/entities/ParsedData.ts`. A Zod throw cascades to the next provider.
 
-**Intents:** `EXPENSE`, `INCOME`, `UNDO`, `STATUS`, `RECURRING`, `QUERY`, `UNKNOWN`.
+**Intents:** `EXPENSE`, `INCOME`, `UNDO`, `STATUS`, `RECURRING`, `QUERY`, `BOX`, `ESCALATE`, `UNKNOWN`.
 **Buckets:** `NEEDS`, `WANTS`, `SAVINGS` (50/30/20-style budgeting).
 
-`QUERY` is handled by a separate agent (`OpenAiQueryAgent` / `IFinancialQueryAgent`) with data-access tools, not by the structured parser.
+The parser has **two prompt modes**, selected by `ctx.assistantMode`
+(`budgetParserPrompt.ts`):
+
+- **off** — today's full 8-intent taxonomy, routed to the deterministic processors.
+- **on** — log-or-escalate only. It emits `EXPENSE`/`INCOME` for a clear spend and
+  `ESCALATE` for everything else. Classifying eight ways is where mis-parses came
+  from; when the lane is on, that job no longer exists.
+
+### The assistant lane
+
+Gated on `ASSISTANT_ENABLED` **and** a non-empty `ANTHROPIC_API_KEY`. Off → the
+parser stays in 8-intent mode, `AssistantProcessor` yields, and `QueryProcessor`
+answers as before. There is no half-on state.
+
+`ClaudeAssistantAgent` is a tool-calling loop (max 5 rounds) with prompt caching
+on the system block. `assistantTools.ts` is the single provider-neutral tool
+catalog — both agents render from it, so descriptions and dispatch cannot drift.
+
+**The grounding contract.** Every tool obeys all six; this is what prevents
+hallucinated numbers, not the prompt:
+
+1. **Money is pre-formatted.** `formatMoney()` server-side. The model quotes
+   strings; it never sees a rupee number it could do arithmetic on.
+2. **Verdicts are precomputed.** `check_affordability` returns `YES|TIGHT|NO`,
+   `compare_cycles` returns `direction`/`deltaPct`, `get_period_status` returns a
+   bucket `status` enum. If the model would need to calculate, there is a tool.
+3. **Schemas carry the user's real data.** `category` params are an `enum` built
+   per request from the user's own leaf categories, so an invented category cannot
+   even be asked about.
+4. **Tools never throw.** Failures return `{ ok: false, error, ...options }` so the
+   model self-corrects inside the 5-round budget. A throw would kill the turn with
+   no model-visible recovery.
+5. **Absence ≠ zero.** Empty results carry an explicit `note`. "Nothing logged" is
+   never reported as "spent ₹0".
+6. **One timezone, inclusive end dates.** Tool dates are `YYYY-MM-DD` in the user's
+   timezone and `to` is **inclusive** — exclusive end dates are an off-by-one trap
+   for an LLM.
+
+`groundingCheck.ts` then extracts every `₹` figure from the answer and asserts it
+appears in some tool result. Misses are logged as `grounding_miss` — hallucination
+is measured, not assumed away.
+
+**Writes are proposals.** The agent's `propose_*` tools mutate nothing: each
+resolves its references against real rows, then records a `PendingAction` and
+returns a summary. `AssistantProcessor` renders `act:<id>:y|n` buttons;
+`PendingActionProcessor` re-checks ownership, expiry (30 min), single-use and Zod
+payload shape, then performs the write. Add new write tools this way — never let
+the agent touch a repository directly.
+
+`historyTrimmer.ts` drops whole exchanges from the oldest end and never splits a
+`tool_use` from its `tool_result` (an orphan is rejected by the API).
 
 ### Frontend: Server Actions pattern
 
@@ -216,7 +304,14 @@ Every incoming Telegram update ID is written to `ProcessedMessage` (in `Telegram
 - Core financial models: `Expense`, `Income`, `BudgetConfig` (per-bucket + per-category budgets), `Category` (user taxonomy), `RecurringRule`.
 - `BudgetNudge` + `NotificationDosage` enum (`OFF | GENTLE | AGGRESSIVE | RELENTLESS`) — dosage-aware reminders; sent by `SendBudgetNudges`.
 - `Bucket` enum: `NEEDS | WANTS | SAVINGS`. `ExpenseSource`, `NudgeKind`, `RecurringKind` enums.
-- `ConversationMessage` — rolling chat history fed back to the AI parser.
+- `ConversationMessage` — rolling chat history fed back to the AI. Ordered by
+  `seq` (a Postgres sequence), **never `createdAt`**: two turns written in the same
+  millisecond tie, and the transcript comes back scrambled. Written via
+  `appendExchange()` as one `createMany` so a user turn can never be read back
+  after its own reply. Also carries `intent`, `entityRefs`, `toolCalls`, and
+  per-turn `provider`/`model`/`latencyMs`/`inputTokens`/`outputTokens`/`costUsd`.
+- `PendingAction` — a write the assistant proposed but has not performed
+  (`kind`, Zod-validated `payload`, `summary`, `expiresAt`, `consumedAt`).
 - `ProcessedMessage` — idempotency ledger. `ParseLog` — raw parser audit.
 - `TelegramLinkToken` — short-lived token linking a web account to a Telegram chat (`/start <token>`).
 - `Account` / `Session` / `VerificationToken` are **NextAuth** models (web auth), not financial accounts.

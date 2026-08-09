@@ -238,6 +238,7 @@ export class PrismaExpenseRepository implements IExpenseRepository {
     });
 
     return rows.map((r) => ({
+      id: r.id,
       date: r.date,
       amount: Number(r.amount),
       bucket: r.bucket,
