@@ -96,14 +96,14 @@ describe("ProcessIncomingMessage (budget flow)", () => {
     };
     conversationRepository = {
       getRecent: vi.fn().mockResolvedValue([]),
-      append: vi.fn().mockResolvedValue(undefined),
+      appendExchange: vi.fn().mockResolvedValue(undefined),
     };
     aiParser = { parseText: vi.fn() };
     messageService = {
       sendMessage: vi.fn().mockResolvedValue("msg-id-123"),
       sendInteractiveMessage: vi.fn().mockResolvedValue("msg-id-456"),
       editInteractiveMessage: vi.fn().mockResolvedValue(undefined),
-      sendTypingIndicator: vi.fn(),
+      sendTypingIndicator: vi.fn().mockResolvedValue(undefined),
     };
     queryAgent = { answer: vi.fn().mockResolvedValue("agent answer") };
 
@@ -123,6 +123,111 @@ describe("ProcessIncomingMessage (budget flow)", () => {
       async (fn: any) => fn({}),
       "https://blipko.lol",
     );
+  });
+
+  describe("assistant lane", () => {
+    function withAssistant(agent: any) {
+      return new ProcessIncomingMessageUseCase(
+        aiParser,
+        userRepository,
+        expenseRepository,
+        categoryRepository,
+        budgetConfigRepository,
+        parseLogRepository,
+        incomeRepository,
+        recurringRuleRepository,
+        boxRepository,
+        conversationRepository,
+        messageService,
+        queryAgent,
+        async (fn: any) => fn({}),
+        "https://blipko.lol",
+        agent,
+      );
+    }
+
+    const assistantAnswer = {
+      text: "You spent ₹1,200 on Food.",
+      toolCalls: [],
+      model: "claude-sonnet-5",
+      provider: "anthropic",
+      latencyMs: 10,
+      inputTokens: 1,
+      outputTokens: 1,
+      ungroundedAmounts: [],
+    };
+
+    it("puts the parser in log-or-escalate mode only when the lane is on", async () => {
+      aiParser.parseText.mockResolvedValue({
+        transactions: [{ intent: "ESCALATE", confidence: 0.9 }],
+      });
+
+      await withAssistant({
+        answer: vi.fn().mockResolvedValue(assistantAnswer),
+      }).execute({ platformUserId: "123", textMessage: "how much on food?" });
+      expect(aiParser.parseText.mock.calls[0]![1].assistantMode).toBe(true);
+
+      aiParser.parseText.mockClear();
+      aiParser.parseText.mockResolvedValue({
+        transactions: [{ intent: "UNKNOWN", confidence: 0.9 }],
+      });
+      await useCase.execute({ platformUserId: "123", textMessage: "hi" });
+      expect(aiParser.parseText.mock.calls[0]![1].assistantMode).toBe(false);
+    });
+
+    it("routes ESCALATE to the assistant", async () => {
+      const agent = { answer: vi.fn().mockResolvedValue(assistantAnswer) };
+      aiParser.parseText.mockResolvedValue({
+        transactions: [{ intent: "ESCALATE", confidence: 0.9 }],
+      });
+
+      const out = await withAssistant(agent).execute({
+        platformUserId: "123",
+        textMessage: "am I spending more than last month?",
+      });
+
+      expect(agent.answer).toHaveBeenCalled();
+      expect(out.response).toBe(assistantAnswer.text);
+    });
+
+    it("records the assistant's model and latency on the turn", async () => {
+      aiParser.parseText.mockResolvedValue({
+        transactions: [{ intent: "ESCALATE", confidence: 0.9 }],
+      });
+      await withAssistant({
+        answer: vi.fn().mockResolvedValue(assistantAnswer),
+      }).execute({ platformUserId: "123", textMessage: "q" });
+
+      expect(
+        conversationRepository.appendExchange.mock.calls[0]![3],
+      ).toMatchObject({
+        provider: "anthropic",
+        model: "claude-sonnet-5",
+      });
+    });
+
+    it("still logs a clear spend on the fast path, without the assistant", async () => {
+      const agent = { answer: vi.fn() };
+      aiParser.parseText.mockResolvedValue({
+        transactions: [
+          {
+            intent: "EXPENSE",
+            amount: 220,
+            category: "Food",
+            bucket: "WANTS",
+            confidence: 0.9,
+          },
+        ],
+      });
+
+      await withAssistant(agent).execute({
+        platformUserId: "123",
+        textMessage: "lunch 220",
+      });
+
+      expect(agent.answer).not.toHaveBeenCalled();
+      expect(expenseRepository.create).toHaveBeenCalled();
+    });
   });
 
   it("hands a brand-new unlinked user off to the dashboard (no row created)", async () => {
@@ -239,6 +344,41 @@ describe("ProcessIncomingMessage (budget flow)", () => {
     expect(messageService.sendMessage.mock.calls[0][0].body).toContain(
       "This cycle — Day",
     );
+  });
+
+  it("records pre-parse turns so slash commands aren't missing from history", async () => {
+    await useCase.execute({ platformUserId: "123", textMessage: "status" });
+
+    // Previously only post-parse turns were saved, so the model read a
+    // transcript with every /status and button press silently missing.
+    expect(conversationRepository.appendExchange).toHaveBeenCalledTimes(1);
+    const [userId, userText, modelText] =
+      conversationRepository.appendExchange.mock.calls[0];
+    expect(userId).toBe("u1");
+    expect(userText).toBe("status");
+    // A marker, not the rendered reply: the full /status text is a money dump
+    // (income + per-bucket totals) that would otherwise be replayed into the
+    // parser's prompt — and to its provider — on every later message.
+    expect(modelText).toBe("[showed budget status]");
+    expect(modelText).not.toContain("Income:");
+  });
+
+  it("tags the recorded turn with the intent it resolved to", async () => {
+    aiParser.parseText.mockResolvedValue({
+      transactions: [
+        {
+          intent: "EXPENSE",
+          amount: 220,
+          category: "Food",
+          bucket: "WANTS",
+          confidence: 0.9,
+        },
+      ],
+    });
+    await useCase.execute({ platformUserId: "123", textMessage: "lunch 220" });
+
+    const meta = conversationRepository.appendExchange.mock.calls[0][3];
+    expect(meta).toMatchObject({ intent: "EXPENSE" });
   });
 
   it("applies the link token even when a Telegram user already exists (merge)", async () => {

@@ -15,6 +15,13 @@ export interface CategoryHint {
 export interface ParseContext {
   categories: CategoryHint[];
   history?: ConversationTurn[];
+  // "YYYY-MM-DD" in the USER'S timezone. Passed in rather than derived inside
+  // the parser: a server-side UTC date tells an IST user it is yesterday every
+  // evening after 18:30, which silently misdates "spent 200 today".
+  today: string;
+  // True when the assistant lane is on. The parser then has one job — log or
+  // escalate — instead of classifying eight intents it can get wrong.
+  assistantMode?: boolean | undefined;
 }
 
 export interface IAiParser {

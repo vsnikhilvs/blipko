@@ -100,6 +100,13 @@ export class StatusProcessor implements MessageProcessor {
     }
 
     await this.messageService.sendMessage({ to: platformUserId, body });
-    return { response: body, parsed: { intent: "STATUS", confidence: 1 } };
+    // Stored as a marker, not the rendered income + per-bucket totals: this
+    // is a pure projection the assistant can re-fetch, and the full text would
+    // otherwise be replayed into the parser's prompt on every later message.
+    return {
+      response: body,
+      parsed: { intent: "STATUS", confidence: 1 },
+      historyText: "[showed budget status]",
+    };
   }
 }

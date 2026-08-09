@@ -5,7 +5,8 @@ import {
 } from "./MessageProcessor";
 import { IMessagingPlatform } from "../../interfaces/IMessagingPlatform";
 
-const HELP_BODY = `🧭 *How to use Blipko*
+function helpBody(webAppUrl: string): string {
+  return `🧭 *How to use Blipko*
 
 *Log a spend* — just say what you spent, in English, Hindi, Manglish, or Malayalam:
 • \`chai 30\`
@@ -26,11 +27,17 @@ Or send a *voice note* — I'll transcribe and log it.
 • /start — connect your dashboard
 • \`undo\` — remove the last entry
 
-*Set up & fine-tune everything* on the web dashboard — sign in, then tap *Connect Telegram* to link this chat. Categories, per-category limits, income split, and reminders all live there: blipko.lol`;
+*Set up & fine-tune everything* on the web dashboard — sign in, then tap *Connect Telegram* to link this chat. Categories, per-category limits, income split, and reminders all live there: ${webAppUrl}`;
+}
 
 // Replies to "help"/"/help" with a detailed guide. Pre-parse (no AI needed).
 export class HelpProcessor implements MessageProcessor {
-  constructor(private readonly messageService: IMessagingPlatform) {}
+  constructor(
+    private readonly messageService: IMessagingPlatform,
+    // From env, not hardcoded — the help text used to name blipko.lol
+    // literally, so any other deployment sent its users to the wrong app.
+    private readonly webAppUrl: string,
+  ) {}
 
   canHandle(context: ProcessContext): boolean {
     const normalized = context.textMessage
@@ -41,12 +48,13 @@ export class HelpProcessor implements MessageProcessor {
   }
 
   async process(context: ProcessContext): Promise<ProcessOutput> {
+    const body = helpBody(this.webAppUrl);
     await this.messageService.sendMessage({
       to: context.platformUserId,
-      body: HELP_BODY,
+      body,
     });
     return {
-      response: HELP_BODY,
+      response: body,
       parsed: { intent: "UNKNOWN", confidence: 1 },
     };
   }

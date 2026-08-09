@@ -93,6 +93,7 @@ export interface RecentExpenseFilter {
 }
 
 export interface RecentExpenseRow {
+  id: string;
   date: Date;
   amount: number;
   bucket: Bucket;

@@ -22,17 +22,20 @@ export class OpenAIParser implements IAiParser {
   }
 
   async parseText(text: string, ctx: ParseContext): Promise<ParsedBatch> {
-    const today = new Date().toISOString().split("T")[0];
-    const promptText = `[Today: ${today}]\n${text}`;
+    const promptText = `[Today: ${ctx.today}]\n${text}`;
 
     const completion = await this.client.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: env.OPENAI_PARSER_MODEL,
       // History lives inside the system prompt as a bounded data block, not as
       // real assistant turns — see historyBlock.ts.
       messages: [
         {
           role: "system",
-          content: buildBudgetSystemPrompt(ctx.categories, ctx.history),
+          content: buildBudgetSystemPrompt(
+            ctx.categories,
+            ctx.history,
+            ctx.assistantMode,
+          ),
         },
         { role: "user", content: promptText },
       ],

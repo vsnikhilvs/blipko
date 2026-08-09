@@ -212,12 +212,18 @@ export class PrismaExpenseRepository implements IExpenseRepository {
     const where: Prisma.ExpenseWhereInput = { userId, isDeleted: false };
 
     if (opts.categoryName) {
-      const category = await this.prisma.category.findFirst({
+      const matches = await this.prisma.category.findMany({
         where: {
           name: { equals: opts.categoryName, mode: "insensitive" },
           OR: [{ userId: null }, { userId }],
         },
       });
+      // A name can match BOTH the shared system template and the user's own
+      // copy. Their expenses point at their own row, so picking the template
+      // (which a bare findFirst does) silently filters to zero — the query
+      // succeeds and reports "no spending" for a category they actively use.
+      const category =
+        matches.find((c) => c.userId === userId) ?? matches[0] ?? null;
       // Unknown category → no matches rather than ignoring the filter.
       if (!category) return [];
       where.categoryId = category.id;
@@ -238,6 +244,7 @@ export class PrismaExpenseRepository implements IExpenseRepository {
     });
 
     return rows.map((r) => ({
+      id: r.id,
       date: r.date,
       amount: Number(r.amount),
       bucket: r.bucket,

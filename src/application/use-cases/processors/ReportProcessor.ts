@@ -104,7 +104,11 @@ export class ReportProcessor implements MessageProcessor {
     }
 
     await this.messageService.sendMessage({ to: platformUserId, body });
-    return { response: body, parsed: { intent: "UNKNOWN", confidence: 1 } };
+    return {
+      response: body,
+      parsed: { intent: "UNKNOWN", confidence: 1 },
+      historyText: "[showed monthly report]",
+    };
   }
 
   private bucketLine(

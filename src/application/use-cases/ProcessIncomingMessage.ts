@@ -20,6 +20,7 @@ import { ParsedData, ParsedBucket } from "../../domain/entities/ParsedData";
 import {
   MessageProcessor,
   ProcessContext,
+  ProcessOutput,
 } from "./processors/MessageProcessor";
 import { ConfirmBucketProcessor } from "./processors/ConfirmBucketProcessor";
 import { RecurringConfirmProcessor } from "./processors/RecurringConfirmProcessor";
@@ -37,7 +38,14 @@ import { ExpenseProcessor } from "./processors/ExpenseProcessor";
 import { IncomeProcessor } from "./processors/IncomeProcessor";
 import { RecurringSetupProcessor } from "./processors/RecurringSetupProcessor";
 import { QueryProcessor } from "./processors/QueryProcessor";
+import { AssistantProcessor } from "./processors/AssistantProcessor";
+import { PendingActionProcessor } from "./processors/PendingActionProcessor";
+import { IAssistantAgent } from "../../domain/services/IAssistantAgent";
+import { IPendingActionRepository } from "../../domain/repositories/IPendingActionRepository";
 import { FallbackProcessor } from "./processors/FallbackProcessor";
+import { zonedYmd } from "../../utils/time";
+import { logger } from "../../utils/logger";
+import { describeError } from "../../utils/describeError";
 import { BoxProcessor } from "./processors/BoxProcessor";
 import { BoxCommandProcessor } from "./processors/BoxCommandProcessor";
 import { RecurringCommandProcessor } from "./processors/RecurringCommandProcessor";
@@ -85,8 +93,25 @@ export class ProcessIncomingMessageUseCase {
     private readonly queryAgent: IFinancialQueryAgent,
     private readonly runTransaction: RunInTransaction,
     private readonly webAppUrl: string,
+    // Null when the assistant lane is off — QueryProcessor then answers as before.
+    private readonly assistantAgent: IAssistantAgent | null = null,
+    private readonly pendingActionRepository: IPendingActionRepository | null = null,
   ) {
     this.preParseProcessors = [
+      // Confirmations for assistant-proposed writes. First, and before any AI:
+      // a button press is an answer to a question already asked.
+      ...(pendingActionRepository
+        ? [
+            new PendingActionProcessor(
+              pendingActionRepository,
+              expenseRepository,
+              categoryRepository,
+              boxRepository,
+              recurringRuleRepository,
+              messageService,
+            ),
+          ]
+        : []),
       new TransactionActionProcessor(
         expenseRepository,
         incomeRepository,
@@ -114,7 +139,7 @@ export class ProcessIncomingMessageUseCase {
       ),
       new ConnectAccountProcessor(messageService, webAppUrl),
       new SettingsProcessor(userRepository, messageService),
-      new HelpProcessor(messageService),
+      new HelpProcessor(messageService, webAppUrl),
       new StatusProcessor(
         expenseRepository,
         budgetConfigRepository,
@@ -187,7 +212,10 @@ export class ProcessIncomingMessageUseCase {
         messageService,
       ),
       new BoxProcessor(boxRepository, messageService),
-      new QueryProcessor(queryAgent, messageService),
+      // Assistant lane first; it yields when unconfigured so QueryProcessor
+      // stays the answer path until the lane is switched on.
+      new AssistantProcessor(this.assistantAgent, messageService, webAppUrl),
+      new QueryProcessor(queryAgent, messageService, webAppUrl),
       new FallbackProcessor(messageService),
     ];
   }
@@ -258,7 +286,12 @@ export class ProcessIncomingMessageUseCase {
     // Pre-AI processors (button callbacks, onboarding).
     for (const processor of this.preParseProcessors) {
       if (processor.canHandle(context)) {
-        return processor.process(context);
+        const output = await processor.process(context);
+        // Record these too. Skipping them left /status, /report and every
+        // button press missing from the transcript the model reads back, so a
+        // follow-up referred to a conversation it could not see.
+        this.recordExchange(user.id, payload.textMessage, output);
+        return output;
       }
     }
 
@@ -267,6 +300,8 @@ export class ProcessIncomingMessageUseCase {
     const batch = await this.aiParser.parseText(payload.textMessage, {
       categories,
       history,
+      today: zonedYmd(new Date(), user.timezone),
+      assistantMode: this.assistantAgent !== null,
     });
 
     if (batch.transactions.length >= 2) {
@@ -283,13 +318,7 @@ export class ProcessIncomingMessageUseCase {
     for (const processor of this.postParseProcessors) {
       if (processor.canHandle(context)) {
         const output = await processor.process(context);
-        // Save conversation turns (fire-and-forget — don't block the reply).
-        this.conversationRepository
-          .append(user.id, "user", payload.textMessage)
-          .catch(console.error);
-        this.conversationRepository
-          .append(user.id, "model", output.response)
-          .catch(console.error);
+        this.recordExchange(user.id, payload.textMessage, output);
         return output;
       }
     }
@@ -298,6 +327,28 @@ export class ProcessIncomingMessageUseCase {
     throw new Error(
       `No processor handled intent: ${context.parsed?.intent ?? "BATCH"}`,
     );
+  }
+
+  // Fire-and-forget: history is context, not correctness, so a failed write
+  // must never cost the user their reply. Ordering within the pair is handled
+  // by the repository, not by the order these two lines happen to resolve in.
+  private recordExchange(
+    userId: string,
+    userText: string,
+    output: ProcessOutput,
+  ): void {
+    this.conversationRepository
+      .appendExchange(userId, userText, output.historyText ?? output.response, {
+        intent: output.parsed?.intent,
+        ...output.turnMeta,
+      })
+      .catch((err) =>
+        logger.error("Failed to record conversation turn", {
+          component: "conversation",
+          userId,
+          err: describeError(err),
+        }),
+      );
   }
 
   private async loadCategoryHints(userId: string): Promise<CategoryHint[]> {

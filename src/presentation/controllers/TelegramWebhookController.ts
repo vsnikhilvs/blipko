@@ -9,6 +9,9 @@ import { GeminiParser } from "../../data/ai/GeminiParser";
 import { OpenAIParser } from "../../data/ai/OpenAIParser";
 import { FallbackAiParser } from "../../data/ai/FallbackAiParser";
 import { OpenAiQueryAgent } from "../../data/ai/OpenAiQueryAgent";
+import { ClaudeAssistantAgent } from "../../data/ai/ClaudeAssistantAgent";
+import { AssistantWriteTools } from "../../application/use-cases/query/AssistantWriteTools";
+import { PrismaPendingActionRepository } from "../../data/repositories/PrismaPendingActionRepository";
 import { FinancialDataTools } from "../../application/use-cases/query/FinancialDataTools";
 import { SarvamTranscriptionService } from "../../data/ai/SarvamTranscriptionService";
 import { PrismaUserRepository } from "../../data/repositories/PrismaUserRepository";
@@ -84,8 +87,24 @@ const financialDataTools = new FinancialDataTools(
   budgetConfigRepository,
   recurringRuleRepository,
   categoryRepository,
+  boxRepository,
 );
 const queryAgent = new OpenAiQueryAgent(financialDataTools);
+
+// The assistant lane. Off unless both the flag and a key are set, so a missing
+// key degrades to the existing query path instead of breaking the bot.
+const assistantEnabled =
+  env.ASSISTANT_ENABLED && Boolean(env.ANTHROPIC_API_KEY);
+const pendingActionRepository = new PrismaPendingActionRepository();
+const assistantWriteTools = new AssistantWriteTools(
+  pendingActionRepository,
+  expenseRepository,
+  categoryRepository,
+  boxRepository,
+);
+const assistantAgent = assistantEnabled
+  ? new ClaudeAssistantAgent(financialDataTools, assistantWriteTools)
+  : null;
 
 const processIncomingMessage = new ProcessIncomingMessageUseCase(
   aiParser,
@@ -102,6 +121,8 @@ const processIncomingMessage = new ProcessIncomingMessageUseCase(
   queryAgent,
   runInTransaction,
   env.WEB_APP_URL,
+  assistantAgent,
+  assistantEnabled ? pendingActionRepository : null,
 );
 
 const processVoiceMessage = new ProcessVoiceMessageUseCase(

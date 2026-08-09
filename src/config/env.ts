@@ -10,7 +10,17 @@ const envSchema = z.object({
   GEMINI_API_KEY: z.string().min(1),
   GEMINI_MODEL: z.string().default("gemini-2.0-flash"),
   OPENAI_API_KEY: z.string().min(1),
+  OPENAI_PARSER_MODEL: z.string().default("gpt-4o-mini"),
   SARVAM_API_KEY: z.string().default(""),
+  // Assistant lane. Blank key / flag off keeps the bot on the existing
+  // deterministic path, so a missing key degrades instead of failing at boot
+  // the way the required keys above do.
+  ANTHROPIC_API_KEY: z.string().default(""),
+  ANTHROPIC_MODEL: z.string().default("claude-sonnet-5"),
+  ASSISTANT_ENABLED: z
+    .string()
+    .default("false")
+    .transform((v) => v === "true" || v === "1"),
   TELEGRAM_BOT_TOKEN: z.string(),
   TELEGRAM_WEBHOOK_SECRET: z.string().min(1),
   // Public URL of the web dashboard, used in the bot's onboarding hand-off.

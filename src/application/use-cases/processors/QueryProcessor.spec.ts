@@ -19,7 +19,11 @@ describe("QueryProcessor", () => {
     vi.clearAllMocks();
     queryAgent = { answer: vi.fn() };
     messageService = { sendMessage: vi.fn().mockResolvedValue("m1") };
-    processor = new QueryProcessor(queryAgent, messageService);
+    processor = new QueryProcessor(
+      queryAgent,
+      messageService,
+      "https://blipko.lol",
+    );
   });
 
   it("handles only the QUERY intent", () => {

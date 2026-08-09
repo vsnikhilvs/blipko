@@ -15,11 +15,16 @@ import { renderHistoryBlock } from "./historyBlock";
 export function buildBudgetSystemPrompt(
   categories: CategoryHint[],
   history?: ConversationTurn[],
+  assistantMode = false,
 ): string {
   const categoryList =
     categories.length > 0
       ? categories.map((c) => `- ${c.name} (${c.bucket})`).join("\n")
       : "- (none yet)";
+
+  if (assistantMode) {
+    return buildLogOrEscalatePrompt(categoryList, history);
+  }
 
   return `You are an expert budgeting assistant for Indian users. You read an informal money message in English, Hindi, Hinglish, Malayalam, or Manglish (often code-mixed) and return STRICT JSON describing it.
 
@@ -107,6 +112,83 @@ ones that don't apply.
 - BUCKET mapping (50/30/20): NEEDS = rent, groceries, utilities, transport, EMIs, essential bills. WANTS = eating out, entertainment, shopping, subscriptions, hobbies. SAVINGS = savings transfers, investments, debt prepayment.
 - Prefer a category from the USER'S CATEGORIES list. If none fits, propose a short new category name and your best-guess bucket.
 - CONFIDENCE: be honest. Set confidence BELOW 0.6 when the amount is unclear OR the bucket is genuinely ambiguous (e.g. a bare "paid 1500" with no hint of what for). The bot will ask the user to confirm in that case.
+- Ignore spelling mistakes. Default currency INR.
+- Output ONLY the JSON object.`;
+}
+
+// The assistant-lane prompt. The parser has exactly one decision to make here:
+// is this a clear spend or income to log, or is it something the assistant
+// should handle? Everything conversational — questions, commands, corrections,
+// ambiguity, chit-chat — is ESCALATE.
+//
+// This exists because classifying eight ways is where the mis-parses came from.
+// A message that is "sort of a question and sort of a spend" no longer has to
+// be resolved by the cheap model at all; it escalates, and the assistant works
+// it out with the user's real data in front of it.
+function buildLogOrEscalatePrompt(
+  categoryList: string,
+  history?: ConversationTurn[],
+): string {
+  return `You are the fast-path classifier for an Indian budgeting bot. You read an informal money message in English, Hindi, Hinglish, Malayalam, or Manglish (often code-mixed) and return STRICT JSON.
+
+### USER'S CATEGORIES (map to one of these when it fits):
+${categoryList}
+${renderHistoryBlock(history)}
+### YOUR ONLY DECISION
+Is this message a CLEAR record of money the user just spent or received?
+
+- YES → emit one transaction per distinct spend/income, intent "EXPENSE" or "INCOME".
+- NO, or you are not sure → emit exactly ONE transaction with intent "ESCALATE" and no amount. A colleague with full access to the user's data will handle it.
+
+ESCALATE is cheap and safe. Logging the wrong thing is not. When torn, ESCALATE.
+
+### OUTPUT (strict JSON, no prose):
+Always return an object with a "transactions" array — never a bare transaction
+object. Send EVERY key on every transaction; use null for the ones that don't apply.
+{
+  "transactions": [
+    {
+      "intent": "EXPENSE | INCOME | ESCALATE",
+      "amount": <number|null>,       // POSITIVE magnitude; null for ESCALATE. Ignore any minus sign
+      "currency": "INR",
+      "category": "<best category|null>", // prefer one from the list above; else propose a short new one
+      "bucket": "NEEDS | WANTS | SAVINGS | null",
+      "note": "<short free-text note, e.g. 'lunch', 'auto to office'|null>",
+      "dayOfMonth": null,
+      "recurringKind": null,
+      "boxName": null,
+      "boxDirection": null,
+      "confidence": <0..1>,          // your confidence in amount + category + bucket
+      "conversational_response": null
+    }
+  ]
+}
+
+### LOG (intent EXPENSE / INCOME)
+Only when the message states money that has ALREADY moved, with an amount.
+- "chai 30" → EXPENSE, amount 30, category Food, bucket WANTS, note "chai", confidence 0.9
+- "auto 80 office" → EXPENSE, amount 80, category Transport, bucket NEEDS, note "auto to office", confidence 0.9
+- "petrol 500 koduthu" → EXPENSE, amount 500, category Transport, bucket NEEDS, note "petrol", confidence 0.9
+- "got salary 50000" → INCOME, amount 50000, note "salary", confidence 0.9
+- "chai 30, auto 80, salary 50k" → three transactions (a genuine journal dump)
+
+### ESCALATE (everything else)
+One entry, intent "ESCALATE", amount null. Non-exhaustive:
+- Questions: "how much did I spend on food last week?", "am I spending more than last month?", "can I afford a 5000 phone?", "evide poyi ee maasathe panam?"
+- Budget health: "status", "how much wants left", "kitna bacha"
+- Corrections and deletions: "undo", "delete that", "make it 50", "that was actually groceries"
+- Repeating items: "rent 8000 on 1st every month", "netflix 199 monthly"
+- Savings goals: "add 5000 to New York trip", "take 1500 from house fund"
+- Social or unclear: "hi", "thanks", "what can you do", "paid 1500" with no hint of what for
+- ANY message where you cannot pin down an amount, or where you are unsure whether the user is logging or asking.
+
+### RULES
+- Amounts are ALWAYS positive. Ignore any minus sign ("chai -30" → amount 30). Direction comes from intent.
+- Never invent an amount to fill the field. If there is no clear amount, ESCALATE with amount null.
+- BUCKET mapping (50/30/20): NEEDS = rent, groceries, utilities, transport, EMIs, essential bills. WANTS = eating out, entertainment, shopping, subscriptions, hobbies. SAVINGS = savings transfers, investments, debt prepayment.
+- Prefer a category from the USER'S CATEGORIES list. If none fits, propose a short new category name and your best-guess bucket.
+- CONFIDENCE: be honest. Below 0.6 when the amount is unclear or the bucket is genuinely ambiguous — the bot will ask the user to confirm.
+- Do NOT split one transaction ("petrol 500" is ONE entry). ESCALATE is always a single-entry array.
 - Ignore spelling mistakes. Default currency INR.
 - Output ONLY the JSON object.`;
 }
