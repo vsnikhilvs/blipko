@@ -41,7 +41,11 @@ export interface BucketStatus {
   remaining: string;
   pct: number;
   safeDaily: string;
+  // For the model to reason with, never to quote — it leaked to a user once as
+  // "you're ON_TRACK on all three". Deliberately abstract because its meaning
+  // depends on the bucket, which is what `interpretation` resolves.
   status: BucketBudgetStatus;
+  // The sentence to actually say. Bucket-aware: over on SAVINGS reads as good.
   interpretation: string;
 }
 

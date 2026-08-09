@@ -9,6 +9,38 @@ const ctx = {
   dashboardUrl: "https://example.test",
 };
 
+describe("tool descriptions carry the rules the model has to follow", () => {
+  const describeTool = (name: string) =>
+    buildToolCatalog([], true).find((t) => t.name === name)!.description;
+
+  it("tells the model not to quote the raw status enum", () => {
+    // It leaked to a real user as "you're ON_TRACK on all three". `status` is a
+    // machine value; `interpretation` is the sentence to say.
+    const d = describeTool("get_period_status");
+    expect(d).toMatch(/never write it out|machine value/i);
+    expect(d).toContain("interpretation");
+  });
+
+  it("keeps the arithmetic rules on the tools that need them", () => {
+    expect(describeTool("check_affordability")).toMatch(/never subtract/i);
+    expect(describeTool("get_recent_expenses")).toMatch(
+      /do not add these rows/i,
+    );
+    expect(describeTool("compare_cycles")).toMatch(/partial/i);
+  });
+
+  it("keeps propose_* framed as proposals, not actions", () => {
+    for (const name of [
+      "propose_recurring",
+      "propose_box_move",
+      "propose_delete_expense",
+      "propose_expense_edit",
+    ]) {
+      expect(describeTool(name)).toMatch(/does NOT|only ever/i);
+    }
+  });
+});
+
 describe("product knowledge tools", () => {
   it("exposes the product tools to the read-only lane too", () => {
     // A user asking "what can you do?" gets the same answer whichever lane is

@@ -72,7 +72,7 @@ export function buildToolCatalog(
     {
       name: "get_period_status",
       description:
-        "Current-cycle budget health per bucket: budget, spent, remaining, percent, safe daily spend, plus a precomputed `status` and a plain-English `interpretation`. Use for overall status. Do not compare the numbers yourself — `status` already says whether a bucket is over, near its limit, or on track.",
+        'Current-cycle budget health per bucket: budget, spent, remaining, percent, safe daily spend, plus a precomputed `status` and a plain-English `interpretation`. Use for overall status. Do not compare the numbers yourself — `status` already says whether a bucket is over, near its limit, or on track. `status` is a machine value for your reasoning, NOT words to show the user: never write it out ("you\'re ON_TRACK" is wrong). Say it in your own words, or use `interpretation`, which already knows that being over on SAVINGS is a good thing and being over on WANTS is not.',
       properties: {},
       required: [],
     },
@@ -162,7 +162,7 @@ export function buildToolCatalog(
     {
       name: "get_product_info",
       description:
-        "Facts about Blipko itself: what it is, what it can do, the commands, the dashboard, how your data is handled, and who built it. Use this for ANY question about the product — 'what can you do?', 'how does this work?', 'who made you?', 'how does this help me?'. Never answer those from your own knowledge: this returns the truth for THIS build, and anything you invent will send the user looking for a feature that does not exist.",
+        "Facts about Blipko itself: what it is, what it can do, the commands, the dashboard, how your data is handled, and who built it. Use this for ANY question about the product — 'what can you do?', 'how does this work?', 'who made you?', 'how does this help me?'. Never answer those from your own knowledge: this returns the truth for THIS build, and anything you invent will send the user looking for a feature that does not exist. It contains NO figures about this user — so if explaining how something works would read better with numbers (\"how does 50/30/20 work?\"), call get_period_status as well and use their real ones. Never illustrate with an example income or budget: the user will read it as theirs.",
       properties: {
         topic: {
           type: "string",
