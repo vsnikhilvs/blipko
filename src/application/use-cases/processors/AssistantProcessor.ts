@@ -14,7 +14,6 @@ import {
 import { zonedYmd } from "../../../utils/time";
 import { actCb } from "../actCallback";
 import { logger } from "../../../utils/logger";
-import { describeError } from "../../../utils/describeError";
 
 const FALLBACK =
   "I couldn't work that out right now — try /status, or rephrase your question.";
@@ -141,8 +140,18 @@ export class AssistantProcessor implements MessageProcessor {
       logger.error("Assistant failed", {
         component: "assistant",
         userId: user.id,
-        question: textMessage,
-        err: describeError(error),
+        // `timedOut` and `elapsedMs` are what separate "we cut it off at 25s"
+        // from "the provider failed instantly" — indistinguishable before, and
+        // the two want opposite fixes. The error object goes through whole: the
+        // logger serializes name/stack/cause and the SDK's status and
+        // request_id, which is what a provider-side ticket needs.
+        timedOut: controller.signal.aborted,
+        elapsedMs: Date.now() - now.getTime(),
+        // Length, not content. The raw question is the user's financial detail,
+        // and logger.ts already records that leaking exactly this at prod log
+        // level was a bug worth fixing once.
+        questionChars: textMessage.length,
+        err: error,
       });
       await this.messageService.sendMessage({
         to: platformUserId,

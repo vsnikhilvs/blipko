@@ -18,6 +18,15 @@ function captureStdout() {
   return { lines, spy };
 }
 
+// error/warn go to stderr, so the error-serialization cases need this one.
+function captureStderr() {
+  const lines: string[] = [];
+  const spy = vi
+    .spyOn(process.stderr, "write")
+    .mockImplementation((chunk: any) => (lines.push(String(chunk)), true));
+  return { lines, spy };
+}
+
 describe("logger", () => {
   const original = { ...process.env };
 
@@ -128,6 +137,79 @@ describe("logger", () => {
       log.info("msg", { present: 1, missing: undefined });
       expect(lines[0]).toContain("present=1");
       expect(lines[0]).not.toContain("missing");
+    });
+  });
+
+  describe("error fields", () => {
+    // `JSON.stringify(new Error("boom"))` is `{}` — message and stack are
+    // non-enumerable. Every site logging `{ err }` emitted a line that said
+    // nothing, which is why a production "Assistant failed" had no cause.
+    it("serializes a thrown Error instead of emitting an empty object", async () => {
+      const log = await freshLogger({
+        NODE_ENV: "production",
+        LOG_LEVEL: undefined,
+        LOG_FORMAT: undefined,
+      });
+      const { lines } = captureStderr();
+
+      log.error("Assistant failed", { err: new Error("boom") });
+
+      const entry = JSON.parse(lines[0]!);
+      expect(entry.err.name).toBe("Error");
+      expect(entry.err.message).toBe("boom");
+      expect(entry.err.stack).toContain("boom");
+    });
+
+    it("keeps the provider's status and request id for a support ticket", async () => {
+      const log = await freshLogger({
+        NODE_ENV: "production",
+        LOG_LEVEL: undefined,
+        LOG_FORMAT: undefined,
+      });
+      const { lines } = captureStderr();
+
+      const apiError = Object.assign(new Error("rate limited"), {
+        status: 429,
+        request_id: "req_123",
+      });
+      log.error("Assistant failed", { err: apiError });
+
+      expect(JSON.parse(lines[0]!).err).toMatchObject({
+        status: 429,
+        request_id: "req_123",
+      });
+    });
+
+    it("unwraps a wrapped error to the reason underneath", async () => {
+      const log = await freshLogger({
+        NODE_ENV: "production",
+        LOG_LEVEL: undefined,
+        LOG_FORMAT: undefined,
+      });
+      const { lines } = captureStderr();
+
+      log.error("Webhook processing failed", {
+        err: new Error("outer", { cause: new Error("connection refused") }),
+      });
+
+      expect(JSON.parse(lines[0]!).err.cause.message).toBe(
+        "connection refused",
+      );
+    });
+
+    it("leaves non-Error fields untouched", async () => {
+      const log = await freshLogger({
+        NODE_ENV: "production",
+        LOG_LEVEL: undefined,
+        LOG_FORMAT: undefined,
+      });
+      const { lines } = captureStderr();
+
+      log.error("msg", { err: "plain string reason", userId: "u1" });
+
+      const entry = JSON.parse(lines[0]!);
+      expect(entry.err).toBe("plain string reason");
+      expect(entry.userId).toBe("u1");
     });
   });
 

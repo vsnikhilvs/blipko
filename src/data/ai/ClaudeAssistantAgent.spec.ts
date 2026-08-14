@@ -1,10 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { create } = vi.hoisted(() => ({ create: vi.fn() }));
+const { create, ctorOptions } = vi.hoisted(() => ({
+  create: vi.fn(),
+  ctorOptions: [] as any[],
+}));
 
 vi.mock("@anthropic-ai/sdk", () => ({
   default: class {
     messages = { create };
+    constructor(options: any) {
+      ctorOptions.push(options);
+    }
   },
 }));
 
@@ -49,6 +55,7 @@ describe("ClaudeAssistantAgent", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    ctorOptions.length = 0;
     tools = {
       getCategories: vi.fn().mockResolvedValue({
         categories: [
@@ -371,6 +378,52 @@ describe("ClaudeAssistantAgent", () => {
   it("throws rather than sending an empty reply", async () => {
     create.mockResolvedValueOnce({ content: [], usage });
     await expect(agent.answer("q", ctx)).rejects.toThrow(/no answer/);
+  });
+
+  // Sonnet 5 runs adaptive thinking when `thinking` is omitted and `high` effort
+  // when `output_config` is omitted — so leaving these out was not "off", it was
+  // the slowest and most expensive setting, silently. Combined with the old
+  // 1024-token cap, thinking could consume the whole budget and the round would
+  // return no text block at all: production's "Assistant failed".
+  it("states thinking and effort instead of inheriting the model defaults", async () => {
+    create.mockResolvedValueOnce(says("ok"));
+    await agent.answer("q", ctx);
+
+    expect(create.mock.calls[0]![0]).toMatchObject({
+      thinking: { type: "adaptive" },
+      output_config: { effort: "low" },
+    });
+  });
+
+  it("budgets output tokens for thinking as well as the reply", async () => {
+    create.mockResolvedValueOnce(says("ok"));
+    await agent.answer("q", ctx);
+
+    expect(create.mock.calls[0]![0].max_tokens).toBeGreaterThanOrEqual(4096);
+  });
+
+  // The SDK retries twice by default. Under AssistantProcessor's 25s abort those
+  // retries cannot complete — they just burn the budget, and the abort then fires
+  // mid-retry so the logged error is the abort rather than the 429 that caused it.
+  it("fails fast rather than letting SDK retries eat the turn budget", async () => {
+    expect(ctorOptions[0]).toMatchObject({ maxRetries: 0 });
+  });
+
+  it("bounds each round so one slow call cannot consume the whole turn", async () => {
+    create.mockResolvedValueOnce(says("ok"));
+    await agent.answer("q", ctx);
+
+    expect(create.mock.calls[0]![1].timeout).toBeGreaterThan(0);
+  });
+
+  it("names truncation rather than reporting it as an empty answer", async () => {
+    create.mockResolvedValueOnce({
+      content: [{ type: "thinking", thinking: "" }],
+      stop_reason: "max_tokens",
+      usage,
+    });
+
+    await expect(agent.answer("q", ctx)).rejects.toThrow(/max_tokens/);
   });
 
   it("replays prior turns as chat messages", async () => {

@@ -15,7 +15,14 @@ import { logger } from "../../utils/logger";
 
 const PROVIDER = "anthropic";
 const MAX_ROUNDS = 5;
-const MAX_OUTPUT_TOKENS = 1024;
+// `max_tokens` caps thinking AND response text together. At 1024 with thinking
+// on, a round could spend the whole budget reasoning and return no text block at
+// all — which surfaced as "model returned no answer" in production. Billing is on
+// actual usage, so the headroom costs nothing on a normal turn.
+const MAX_OUTPUT_TOKENS = 4096;
+// Per-request ceiling. AssistantProcessor aborts the whole turn at 25s; bounding
+// each round stops one slow call from consuming that budget by itself.
+const REQUEST_TIMEOUT_MS = 20_000;
 // Leaves room for the system prompt, tool definitions and this turn's results.
 const MAX_HISTORY_TOKENS = 4000;
 
@@ -36,7 +43,11 @@ export class ClaudeAssistantAgent implements IAssistantAgent {
     private readonly model: string = env.ANTHROPIC_MODEL,
   ) {
     if (!apiKey) throw new Error("ClaudeAssistantAgent: API key is missing.");
-    this.client = new Anthropic({ apiKey });
+    // The SDK retries twice by default with backoff. Under a 25s turn budget a
+    // retry cannot fit: it only burns the budget, and the abort then fires
+    // mid-retry so the surfaced error is the abort rather than the 429 or 529
+    // that caused it. Failing fast makes the real status reach the log.
+    this.client = new Anthropic({ apiKey, maxRetries: 0 });
   }
 
   async answer(
@@ -65,11 +76,23 @@ export class ClaudeAssistantAgent implements IAssistantAgent {
         {
           model: this.model,
           max_tokens: MAX_OUTPUT_TOKENS,
+          // Both are stated rather than inherited. On Sonnet 5 an omitted
+          // `thinking` runs adaptive and an omitted `effort` runs `high` — so
+          // leaving them out was not "no thinking", it was the most expensive
+          // setting, silently. Thinking stays ON: disabling it makes the model
+          // reach for tools less often, which is the wrong trade for an agent
+          // whose every figure has to come from a tool. `low` is the fit for
+          // short, scoped work under a 25s budget.
+          thinking: { type: "adaptive" },
+          output_config: { effort: "low" },
           system: this.systemPrompt(ctx),
           tools: toolDefs,
           messages,
         },
-        ctx.signal ? { signal: ctx.signal } : {},
+        {
+          timeout: REQUEST_TIMEOUT_MS,
+          ...(ctx.signal && { signal: ctx.signal }),
+        },
       );
 
       inputTokens += response.usage.input_tokens;
@@ -86,7 +109,18 @@ export class ClaudeAssistantAgent implements IAssistantAgent {
           .join("")
           .trim();
         if (!text) {
-          throw new Error("ClaudeAssistantAgent: model returned no answer.");
+          // Two different bugs used to share one message. Truncation means the
+          // round spent max_tokens on thinking and never reached a text block —
+          // raise MAX_OUTPUT_TOKENS or lower effort. An empty response with a
+          // normal stop_reason is a genuine provider anomaly.
+          if (response.stop_reason === "max_tokens") {
+            throw new Error(
+              `ClaudeAssistantAgent: hit max_tokens (${MAX_OUTPUT_TOKENS}) before producing an answer.`,
+            );
+          }
+          throw new Error(
+            `ClaudeAssistantAgent: model returned no answer (stop_reason=${response.stop_reason}).`,
+          );
         }
         return this.finish(
           text,

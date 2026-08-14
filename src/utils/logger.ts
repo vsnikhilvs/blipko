@@ -34,6 +34,48 @@ const MAX_VALUE_CHARS = 180;
 
 type Fields = Record<string, unknown>;
 
+// `JSON.stringify(new Error("boom"))` is `{}` — Error's `message` and `stack` are
+// non-enumerable. Every site that logged `{ err }` therefore emitted a log line
+// that said nothing at all. Serializing here rather than at the call sites means
+// a caller cannot get this wrong by forgetting to flatten first.
+//
+// The extra keys are what provider SDKs hang on their error classes: Anthropic's
+// APIError carries `status` and `request_id`, which are the two things you need
+// to tell a 429 from a 529 or to open a ticket against a specific request.
+const ERROR_EXTRAS = ["status", "request_id", "requestID", "code", "type"];
+const MAX_CAUSE_DEPTH = 3;
+
+function serializeError(error: Error, depth = 0): Fields {
+  const out: Fields = {
+    name: error.name,
+    message: error.message,
+    stack: error.stack,
+  };
+  for (const key of ERROR_EXTRAS) {
+    const value = (error as unknown as Fields)[key];
+    if (value !== undefined) out[key] = value;
+  }
+  // A wrapped error keeps the real reason in `cause`; depth-bounded so a cyclic
+  // cause chain can't spin here.
+  const cause = (error as { cause?: unknown }).cause;
+  if (cause !== undefined && depth < MAX_CAUSE_DEPTH) {
+    out.cause =
+      cause instanceof Error ? serializeError(cause, depth + 1) : cause;
+  }
+  return out;
+}
+
+function expandErrors(fields: Fields): Fields {
+  let out: Fields | null = null;
+  for (const [key, value] of Object.entries(fields)) {
+    if (value instanceof Error) {
+      out ??= { ...fields };
+      out[key] = serializeError(value);
+    }
+  }
+  return out ?? fields;
+}
+
 const LEVEL_COLOR: Record<Level, string> = {
   debug: "\x1b[90m",
   info: "\x1b[36m",
@@ -69,8 +111,9 @@ function formatPretty(
   return rest.length === 0 ? head : `${head}  ${rest.join(" ")}`;
 }
 
-function emit(level: Level, msg: string, fields: Fields): void {
+function emit(level: Level, msg: string, rawFields: Fields): void {
   if (LEVELS[level] < threshold) return;
+  const fields = expandErrors(rawFields);
   const stream =
     level === "error" || level === "warn" ? process.stderr : process.stdout;
   const line = pretty

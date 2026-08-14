@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { AssistantProcessor } from "./AssistantProcessor";
+import { logger } from "../../../utils/logger";
 
 const user: any = {
   id: "u1",
@@ -222,6 +223,81 @@ describe("AssistantProcessor", () => {
     expect(out.response).toContain("/status");
     expect(out.turnMeta).toBeUndefined();
     expect(messageService.sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  // The production line said only "Assistant failed" — no status, no stack, no
+  // way to tell a 25s cut-off from an instant network error. These pin the
+  // fields that make the next one diagnosable.
+  describe("failure diagnostics", () => {
+    afterEach(() => vi.useRealTimers());
+
+    it("logs the error object itself, not a flattened message", async () => {
+      const spy = vi.spyOn(logger, "error").mockImplementation(() => {});
+      const boom = new Error("provider down");
+      agent.answer.mockRejectedValue(boom);
+
+      await new AssistantProcessor(
+        agent,
+        messageService,
+        "https://blipko.lol",
+      ).process(ctx());
+
+      expect(spy).toHaveBeenCalledWith(
+        "Assistant failed",
+        expect.objectContaining({ err: boom, userId: "u1" }),
+      );
+    });
+
+    it("never writes the user's question to the log", async () => {
+      const spy = vi.spyOn(logger, "error").mockImplementation(() => {});
+      agent.answer.mockRejectedValue(new Error("provider down"));
+
+      await new AssistantProcessor(
+        agent,
+        messageService,
+        "https://blipko.lol",
+      ).process(ctx({ textMessage: "can I afford a ₹90,000 laptop?" }));
+
+      const fields = spy.mock.calls[0]![1] as Record<string, unknown>;
+      expect(JSON.stringify(fields)).not.toContain("laptop");
+      expect(fields.questionChars).toBe(30);
+    });
+
+    it("distinguishes a timed-out turn from a provider error", async () => {
+      const spy = vi.spyOn(logger, "error").mockImplementation(() => {});
+      agent.answer.mockImplementation(
+        (_q: string, c: any) =>
+          new Promise((_resolve, reject) => {
+            c.signal.addEventListener("abort", () =>
+              reject(new Error("Request was aborted.")),
+            );
+          }),
+      );
+      vi.useFakeTimers();
+
+      const p = new AssistantProcessor(
+        agent,
+        messageService,
+        "https://blipko.lol",
+      ).process(ctx());
+      await vi.advanceTimersByTimeAsync(25_000);
+      await p;
+
+      expect(spy.mock.calls[0]![1]).toMatchObject({ timedOut: true });
+    });
+
+    it("reports a fast provider failure as not timed out", async () => {
+      const spy = vi.spyOn(logger, "error").mockImplementation(() => {});
+      agent.answer.mockRejectedValue(new Error("fetch failed"));
+
+      await new AssistantProcessor(
+        agent,
+        messageService,
+        "https://blipko.lol",
+      ).process(ctx());
+
+      expect(spy.mock.calls[0]![1]).toMatchObject({ timedOut: false });
+    });
   });
 
   it("still answers when the typing indicator fails", async () => {
