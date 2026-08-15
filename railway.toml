@@ -3,6 +3,16 @@ builder = "RAILPACK"
 # Compile the seed during build (devDeps/tsc available here) so predeploy can run
 # the plain JS with only the prod @prisma/client.
 buildCommand = "pnpm install --frozen-lockfile && pnpm prisma generate && pnpm build && pnpm db:seed:compile"
+# Only rebuild the bot when backend code changes; `web/**` commits are the web
+# service's business.
+watchPatterns = [
+  "src/**",
+  "prisma/**",
+  "package.json",
+  "pnpm-lock.yaml",
+  "tsconfig.json",
+  "railway.toml",
+]
 
 [deploy]
 startCommand = "node dist/app.js"

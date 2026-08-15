@@ -3,9 +3,16 @@ builder = "RAILPACK"
 # Generate the Prisma client from the committed web/prisma/schema.prisma before
 # the Next build (standalone web context has no ../prisma to sync from).
 buildCommand = "pnpm prisma generate && pnpm build"
+# Only rebuild this service when the web app changes. Backend-only commits used to
+# trigger a full `next build` here for nothing.
+watchPatterns = ["web/**"]
 
 [deploy]
-startCommand = "pnpm start"
+# Heap cap lives in the start command, not a service variable: a service-wide
+# NODE_OPTIONS would apply to `next build` too, which needs far more than 384 MB.
+# Without a cap the container's 8 GB limit lets V8 grow old-space into the GB range
+# and RSS climbs from deploy to deploy — that climb is ~90% of the Railway bill.
+startCommand = "NODE_OPTIONS=--max-old-space-size=384 pnpm start"
 healthcheckPath = "/"
 healthcheckTimeout = 120
 restartPolicyType = "ON_FAILURE"
