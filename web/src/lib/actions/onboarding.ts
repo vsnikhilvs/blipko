@@ -134,61 +134,89 @@ export async function submitOnboarding(
     leaves,
   );
 
-  await prisma.$transaction(async (tx) => {
-    await tx.user.update({
-      where: { id: userId },
-      data: {
-        monthlyIncome: d.monthlyIncome,
-        currency: d.currency,
-        locale: localeForCurrency(d.currency),
-        ...(d.payday !== undefined ? { payday: d.payday } : {}),
-        ...(d.timezone ? { timezone: d.timezone } : {}),
-        notificationDosage: d.notificationDosage,
-        onboardingStep: null,
-      },
-    });
+  // Batch the category clone. A per-row findFirst/create loop is dozens of
+  // sequential round-trips and blows Prisma Accelerate's 5s interactive
+  // transaction timeout (P2028: "Transaction not found").
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          monthlyIncome: d.monthlyIncome,
+          currency: d.currency,
+          locale: localeForCurrency(d.currency),
+          ...(d.payday !== undefined ? { payday: d.payday } : {}),
+          ...(d.timezone ? { timezone: d.timezone } : {}),
+          notificationDosage: d.notificationDosage,
+          onboardingStep: null,
+        },
+      });
 
-    await tx.budgetConfig.upsert({
-      where: { userId },
-      create: { userId, ...DEFAULT_SPLIT },
-      update: {},
-    });
+      await tx.budgetConfig.upsert({
+        where: { userId },
+        create: { userId, ...DEFAULT_SPLIT },
+        update: {},
+      });
 
-    // Clone the selected leaves under per-user copies of their parent group,
-    // idempotent by (userId, name).
-    for (const parentId of parentIds) {
-      const parent = parentById.get(parentId);
-      if (!parent) continue;
-      const groupRow =
-        (await tx.category.findFirst({
-          where: { userId, name: parent.name },
-        })) ??
-        (await tx.category.create({
-          data: {
+      const groupsToCreate = parentIds.flatMap((parentId) => {
+        const parent = parentById.get(parentId);
+        if (!parent) return [];
+        return [
+          {
             userId,
             name: parent.name,
             bucket: parent.bucket,
             isGroup: true,
           },
-        }));
+        ];
+      });
+      if (groupsToCreate.length === 0) return;
 
-      for (const leaf of leafRows.filter((l) => l.parentId === parentId)) {
-        const exists = await tx.category.findFirst({
-          where: { userId, name: leaf.name },
-        });
-        if (exists) continue;
-        await tx.category.create({
-          data: {
+      await tx.category.createMany({
+        data: groupsToCreate,
+        skipDuplicates: true,
+      });
+
+      const groupRows = await tx.category.findMany({
+        where: {
+          userId,
+          isGroup: true,
+          name: { in: groupsToCreate.map((g) => g.name) },
+        },
+        select: { id: true, name: true },
+      });
+      const groupIdByName = new Map(groupRows.map((g) => [g.name, g.id]));
+
+      const leavesToCreate = leafRows.flatMap((leaf) => {
+        const parent = leaf.parentId
+          ? parentById.get(leaf.parentId)
+          : undefined;
+        const parentRowId = parent ? groupIdByName.get(parent.name) : undefined;
+        if (!parentRowId) return [];
+        return [
+          {
             userId,
             name: leaf.name,
             bucket: leaf.bucket,
-            parentId: groupRow.id,
+            parentId: parentRowId,
             monthlyBudget: budgets.get(leaf.name) ?? null,
           },
-        });
-      }
-    }
-  });
+        ];
+      });
+      if (leavesToCreate.length === 0) return;
+
+      await tx.category.createMany({
+        data: leavesToCreate,
+        skipDuplicates: true,
+      });
+    });
+  } catch (error) {
+    console.error("Error submitting onboarding:", error);
+    return {
+      success: false,
+      message: "Couldn't save your setup — please try again.",
+    };
+  }
 
   // NOTE: hasOnboarded is set only when the wizard actually finishes (Telegram
   // step) via markOnboardingComplete — setting it here would flip the dashboard

@@ -7,6 +7,7 @@ import { sendWelcomeEmail } from "./lib/email";
 export const { handlers, signIn, signOut, auth } = NextAuth({
   adapter: PrismaAdapter(prisma),
   providers: [Google],
+  trustHost: true,
   callbacks: {
     async session({ session, user }) {
       if (session.user) {
