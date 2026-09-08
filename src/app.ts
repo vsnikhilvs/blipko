@@ -13,9 +13,19 @@ app.set("trust proxy", 1);
 
 app.use(express.json({ limit: "32kb" }));
 
-app.get("/health", (_req, res) =>
-  res.status(200).json({ success: true, message: "OK", data: null }),
-);
+// Pings Postgres on purpose: UptimeRobot hitting this also wakes Neon. A
+// process-only 200 left the DB suspended, so Telegram /start then timed out.
+app.get("/health", async (_req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.status(200).json({ success: true, message: "OK", data: null });
+  } catch (err) {
+    logger.error("Health check DB ping failed", { err });
+    res
+      .status(503)
+      .json({ success: false, message: "DB unavailable", data: null });
+  }
+});
 
 const webhookLimiter = rateLimit({
   windowMs: 60_000,
@@ -41,8 +51,13 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 const port = env.PORT;
 
 if (process.env.NODE_ENV !== "test") {
-  const server = app.listen(port, () => {
-    process.stdout.write(`🚀 Blipko budget bot listening on port ${port}\n`);
+  // Bind IPv4 explicitly. Default listen() can land on :: only; Render's
+  // scanner then logs "No open ports detected" and SIGTERMs the process —
+  // Telegram webhooks never reach Node.
+  const server = app.listen(port, "0.0.0.0", () => {
+    process.stdout.write(
+      `🚀 Blipko budget bot listening on 0.0.0.0:${port}\n`,
+    );
     if (!env.SARVAM_API_KEY.trim()) {
       logger.warn(
         "SARVAM_API_KEY not set — voice transcription disabled; users will be asked to type instead.",

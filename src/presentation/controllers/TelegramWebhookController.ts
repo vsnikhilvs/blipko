@@ -182,6 +182,10 @@ export class TelegramWebhookController {
       if (this.webhookSecret) {
         const incoming = req.headers["x-telegram-bot-api-secret-token"];
         if (typeof incoming !== "string") {
+          logger.warn("Telegram webhook rejected", {
+            component: "telegram-webhook",
+            reason: "missing-secret",
+          });
           res
             .status(403)
             .json({ success: false, message: "Forbidden", data: null });
@@ -190,6 +194,10 @@ export class TelegramWebhookController {
         const a = Buffer.from(incoming);
         const b = Buffer.from(this.webhookSecret);
         if (a.length !== b.length || !timingSafeEqual(a, b)) {
+          logger.warn("Telegram webhook rejected", {
+            component: "telegram-webhook",
+            reason: "secret-mismatch",
+          });
           res
             .status(403)
             .json({ success: false, message: "Forbidden", data: null });
@@ -198,6 +206,17 @@ export class TelegramWebhookController {
       }
 
       const update = req.body as TelegramUpdate;
+      logger.info("Telegram webhook received", {
+        component: "telegram-webhook",
+        updateId: update.update_id,
+        kind: update.callback_query
+          ? "callback"
+          : update.message?.text
+            ? "text"
+            : update.message?.voice || update.message?.audio
+              ? "audio"
+              : "other",
+      });
 
       // ── Callback query (inline button press) ──────────────────────────────
       if (update.callback_query) {
