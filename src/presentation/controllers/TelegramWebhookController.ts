@@ -230,28 +230,41 @@ export class TelegramWebhookController {
           return;
         }
 
-        await this.messageService.sendTypingIndicator(platformUserId);
+        // Fast ACK to Telegram to avoid webhook timeouts. Do the heavy work
+        // asynchronously so Telegram receives a quick 200 and we can still
+        // acknowledge the callback (toast) when processing finishes.
+        res.status(200).json({ success: true });
 
-        // Ack AFTER handling so the toast can reflect the outcome. The `finally`
-        // guarantees the spinner always stops, even if processing throws.
-        let toast: string | undefined;
-        try {
-          const result = await this.processIncomingMessage.execute({
-            platformUserId,
-            platformUsername: cq.from.username ?? cq.from.first_name,
-            textMessage: cq.data ?? "",
-            callbackMessageId: cq.message?.message_id
-              ? String(cq.message.message_id)
-              : undefined,
-            callbackQueryId: cq.id,
-          });
-          toast = result.toast;
-          res
-            .status(200)
-            .json({ success: true, data: { response: result.response } });
-        } finally {
-          await this.messageService.acknowledgeInteraction(cq.id, toast);
-        }
+        (async () => {
+          try {
+            await this.messageService.sendTypingIndicator(platformUserId);
+            let toast: string | undefined;
+            try {
+              const result = await this.processIncomingMessage.execute({
+                platformUserId,
+                platformUsername: cq.from.username ?? cq.from.first_name,
+                textMessage: cq.data ?? "",
+                callbackMessageId: cq.message?.message_id
+                  ? String(cq.message.message_id)
+                  : undefined,
+                callbackQueryId: cq.id,
+              });
+              toast = result.toast;
+            } catch (err) {
+              logger.error("Async callback processing failed", { err });
+            } finally {
+              try {
+                await this.messageService.acknowledgeInteraction(cq.id, toast);
+              } catch (err) {
+                logger.error("Failed to acknowledge interaction", { err });
+              }
+            }
+          } catch (err) {
+            logger.error("Unexpected error during async callback processing", {
+              err,
+            });
+          }
+        })();
         return;
       }
 
@@ -278,53 +291,68 @@ export class TelegramWebhookController {
         return;
       }
 
-      await this.messageService.sendTypingIndicator(platformUserId);
+      // Fast ACK to Telegram to avoid webhook timeouts. Process the message
+      // asynchronously; the use-cases will send replies via the message
+      // service when ready.
+      res.status(200).json({ success: true });
 
-      // ── Voice / audio ─────────────────────────────────────────────────────
-      const audioFileId = msg.voice?.file_id ?? msg.audio?.file_id;
-      if (audioFileId) {
-        if (!this.processVoiceMessage.enabled) {
-          const body =
-            'Voice messages aren\'t enabled right now — please type your expense instead, e.g. "chai 30".';
-          await this.messageService.sendMessage({ to: platformUserId, body });
-          res.status(200).json({ success: true, data: { response: body } });
-          return;
+      (async () => {
+        try {
+          await this.messageService.sendTypingIndicator(platformUserId);
+
+          // Voice / audio
+          const audioFileId = msg.voice?.file_id ?? msg.audio?.file_id;
+          if (audioFileId) {
+            if (!this.processVoiceMessage.enabled) {
+              const body =
+                'Voice messages aren\'t enabled right now — please type your expense instead, e.g. "chai 30".';
+              try {
+                await this.messageService.sendMessage({
+                  to: platformUserId,
+                  body,
+                });
+              } catch (err) {
+                logger.error("Failed to send voice-disabled message", { err });
+              }
+              return;
+            }
+            try {
+              await this.processVoiceMessage.execute({
+                platformUserId,
+                audioFileId,
+                replyToMessageId,
+              });
+            } catch (err) {
+              logger.error("Async voice processing failed", { err });
+            }
+            return;
+          }
+
+          // Text
+          const text = msg.text;
+          if (!text) {
+            logger.warn("Unsupported message type received (no text)", {
+              platformUserId,
+            });
+            return;
+          }
+
+          try {
+            await this.processIncomingMessage.execute({
+              platformUserId,
+              platformUsername,
+              textMessage: text,
+              replyToMessageId,
+            });
+          } catch (err) {
+            logger.error("Async text processing failed", { err });
+          }
+        } catch (err) {
+          logger.error("Unexpected error during async message processing", {
+            err,
+          });
         }
-        const result = await this.processVoiceMessage.execute({
-          platformUserId,
-          audioFileId,
-          replyToMessageId,
-        });
-        res.status(200).json({
-          success: true,
-          data: {
-            transcribedText: result.transcribedText,
-            response: result.response,
-          },
-        });
-        return;
-      }
-
-      // ── Text ──────────────────────────────────────────────────────────────
-      const text = msg.text;
-      if (!text) {
-        res
-          .status(200)
-          .json({ success: true, message: "Unsupported message type" });
-        return;
-      }
-
-      const result = await this.processIncomingMessage.execute({
-        platformUserId,
-        platformUsername,
-        textMessage: text,
-        replyToMessageId,
-      });
-
-      res.status(200).json({
-        success: true,
-        data: { response: result.response, intent: result.parsed.intent },
-      });
+      })();
     } catch (error) {
       logger.error("Webhook processing failed", {
         component: "telegram-webhook",

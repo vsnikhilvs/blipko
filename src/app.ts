@@ -13,9 +13,14 @@ app.set("trust proxy", 1);
 
 app.use(express.json({ limit: "32kb" }));
 
-// Pings Postgres on purpose: UptimeRobot hitting this also wakes Neon. A
-// process-only 200 left the DB suspended, so Telegram /start then timed out.
-app.get("/health", async (_req, res) => {
+// Process-only. Render health-checks this the moment the port opens; a Neon
+// round-trip here 503'd / timed out and Render SIGTERM'd the bot (~10s after
+// listen). Uptime monitors that should wake Neon must hit /health/db instead.
+app.get("/health", (_req, res) =>
+  res.status(200).json({ success: true, message: "OK", data: null }),
+);
+
+app.get("/health/db", async (_req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
     res.status(200).json({ success: true, message: "OK", data: null });
@@ -56,7 +61,7 @@ if (process.env.NODE_ENV !== "test") {
   // Telegram webhooks never reach Node.
   const server = app.listen(port, "0.0.0.0", () => {
     process.stdout.write(
-      `🚀 Blipko budget bot listening on 0.0.0.0:${port}\n`,
+      `🚀 Blipko budget bot listening on 0.0.0.0:${port} (PORT=${process.env.PORT ?? "unset"})\n`,
     );
     if (!env.SARVAM_API_KEY.trim()) {
       logger.warn(
