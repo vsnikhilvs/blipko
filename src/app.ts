@@ -77,15 +77,44 @@ if (process.env.NODE_ENV !== "test") {
     logger.info("Shutting down gracefully");
     server.close(async () => {
       await prisma.$disconnect();
+      logger.info("Exiting process after graceful shutdown", {
+        pid: process.pid,
+        uptimeSec: Math.floor(process.uptime()),
+      });
       process.exit(0);
     });
     setTimeout(() => process.exit(1), 10_000).unref();
   }
 
-  process.on("SIGTERM", shutdown);
-  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", (sig) => {
+    logger.info("SIGTERM received", {
+      sig,
+      pid: process.pid,
+      uptimeSec: Math.floor(process.uptime()),
+      envPort: env.PORT,
+      processEnvPort: process.env.PORT,
+      nodeEnv: process.env.NODE_ENV,
+    });
+    shutdown();
+  });
+
+  process.on("SIGINT", (sig) => {
+    logger.info("SIGINT received", { sig, pid: process.pid });
+    shutdown();
+  });
+
   process.on("unhandledRejection", (reason) => {
     logger.error("Unhandled rejection", { reason });
+  });
+
+  process.on("uncaughtException", (err) => {
+    logger.error("Uncaught exception", { err });
+    // Let the shutdown handler run to perform graceful cleanup
+    shutdown();
+  });
+
+  process.on("exit", (code) => {
+    logger.info("Process exit event", { code, pid: process.pid });
   });
 }
 
