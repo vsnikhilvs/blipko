@@ -74,7 +74,10 @@ if (process.env.NODE_ENV !== "test") {
   });
 
   function shutdown() {
-    logger.info("Shutting down gracefully");
+    const shutdownStack = new Error("shutdown called").stack;
+    // Ensure we write something immediately visible to platform logs
+    console.error("Shutting down gracefully\n", shutdownStack);
+    logger.info("Shutting down gracefully", { stack: shutdownStack });
     server.close(async () => {
       await prisma.$disconnect();
       logger.info("Exiting process after graceful shutdown", {
